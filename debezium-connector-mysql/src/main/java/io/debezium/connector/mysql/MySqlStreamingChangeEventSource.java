@@ -23,7 +23,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import javax.net.ssl.KeyManager;
@@ -125,7 +124,7 @@ public class MySqlStreamingChangeEventSource implements StreamingChangeEventSour
     private Long previousMasterId;
     private Long currentMasterId;
     private Producer<String, String> kafkaProducer;
-    private final String ERROR_TOPIC = "src_debezium_connector_database_switch";
+    private final String ERROR_TOPIC = "src_dcom_debezium_connector_error";
 
     @SingleThreadAccess("binlog client thread")
     private Instant eventTimestamp;
@@ -1370,7 +1369,7 @@ public class MySqlStreamingChangeEventSource implements StreamingChangeEventSour
 
         private void resetBinlogOffset(BinaryLogClient client, Exception ex) {
             if (currentBinlogResetCount < MAX_RETRY_FOR_BINLOG_RESET) {
-                LOGGER.info("Trying to set new offset for the server");
+                LOGGER.error("Trying to set new offset for the server");
                 final String showMasterStmt = "SHOW MASTER STATUS";
                 try {
                     connection.isValid();
@@ -1381,12 +1380,12 @@ public class MySqlStreamingChangeEventSource implements StreamingChangeEventSour
                             client.setBinlogFilename(newBinlogFilename);
                             client.setBinlogPosition(binlogPosition);
                             offsetContext.setBinlogStartPoint(newBinlogFilename, binlogPosition);
-                            LOGGER.info(" New offset : binlog '{}' at position '{}'", newBinlogFilename, binlogPosition);
+                            LOGGER.error(" New offset : binlog '{}' at position '{}'", newBinlogFilename, binlogPosition);
                             currentBinlogResetCount++;
-                            LOGGER.info("Retry count for binlog reset is {}", currentBinlogResetCount);
+                            LOGGER.error("Retry count for binlog reset is {}", currentBinlogResetCount);
                         }
                         else {
-                            LOGGER.info("Unexpected response to '{}': no results were returned", showMasterStmt);
+                            LOGGER.error("Unexpected response to '{}': no results were returned", showMasterStmt);
                             errorHandler.setProducerThrowable(wrap(ex));
                         }
                     });
