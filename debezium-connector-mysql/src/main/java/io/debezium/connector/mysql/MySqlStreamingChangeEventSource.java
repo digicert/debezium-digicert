@@ -1446,7 +1446,7 @@ public class MySqlStreamingChangeEventSource implements StreamingChangeEventSour
             }
         }
         catch (Exception e) {
-            LOGGER.error("Unable to send message to kafka topic : {}", e.getMessage());
+            LOGGER.error("Error while sending error message to kafka topic ", e);
         }
     }
 
