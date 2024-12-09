@@ -10,6 +10,7 @@ import static org.junit.Assert.fail;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -17,12 +18,15 @@ import java.util.stream.Stream;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.connect.data.Struct;
 import org.bson.Document;
+import org.bson.UuidRepresentation;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
@@ -32,8 +36,8 @@ import io.debezium.config.Configuration;
 import io.debezium.config.Configuration.Builder;
 import io.debezium.connector.mongodb.connection.ConnectionStrings;
 import io.debezium.connector.mongodb.connection.MongoDbConnection;
-import io.debezium.connector.mongodb.connection.ReplicaSet;
 import io.debezium.testing.testcontainers.MongoDbDeployment;
+import io.debezium.util.Collect;
 
 /**
  * A common test configuration options
@@ -46,6 +50,9 @@ public class TestHelper {
 
     public static final List<Integer> MONGO_VERSION = getMongoVersion();
     private static final String TEST_PROPERTY_PREFIX = "debezium.test.";
+
+    private static final Set<String> BUILT_IN_DB_NAMES = Collect.unmodifiableSet("local", "admin", "config");
+
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private static List<Integer> getMongoVersion() {
@@ -90,7 +97,11 @@ public class TestHelper {
     }
 
     public static MongoClient connect(MongoDbDeployment mongo) {
-        return MongoClients.create(mongo.getConnectionString());
+        var settings = MongoClientSettings.builder()
+                .applyConnectionString(new ConnectionString(mongo.getConnectionString()))
+                .uuidRepresentation(UuidRepresentation.STANDARD)
+                .build();
+        return MongoClients.create(settings);
     }
 
     public static void cleanDatabase(MongoDbDeployment mongo, String dbName) {
@@ -100,6 +111,19 @@ public class TestHelper {
                 logger.info("Removing collection '{}' from database '{}'", x, dbName);
                 db1.getCollection(x).drop();
             });
+        }
+    }
+
+    public static void cleanDatabases(MongoDbDeployment mongo) {
+        try (var client = connect(mongo)) {
+            client.listDatabaseNames().forEach(name -> {
+                if (!BUILT_IN_DB_NAMES.contains(name)) {
+                    client.getDatabase(name).drop();
+                }
+            });
+        }
+        catch (Exception e) {
+            logger.error("Error while cleaning database", e);
         }
     }
 
@@ -169,8 +193,4 @@ public class TestHelper {
         }
     }
 
-    public static ReplicaSet replicaSet(MongoDbDeployment mongo) {
-        var cs = connectionString(mongo);
-        return new ReplicaSet(cs);
-    }
 }

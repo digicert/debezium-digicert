@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import io.debezium.DebeziumException;
 import io.debezium.config.Configuration;
+import io.debezium.connector.base.ChangeEventQueueMetrics;
 import io.debezium.connector.oracle.AbstractStreamingAdapter;
 import io.debezium.connector.oracle.OracleConnection;
 import io.debezium.connector.oracle.OracleConnectorConfig;
@@ -30,19 +31,20 @@ import io.debezium.connector.oracle.OracleConnectorConfig.TransactionSnapshotBou
 import io.debezium.connector.oracle.OracleDatabaseSchema;
 import io.debezium.connector.oracle.OracleOffsetContext;
 import io.debezium.connector.oracle.OraclePartition;
-import io.debezium.connector.oracle.OracleStreamingChangeEventSourceMetrics;
 import io.debezium.connector.oracle.OracleTaskContext;
 import io.debezium.connector.oracle.Scn;
 import io.debezium.document.Document;
 import io.debezium.pipeline.ErrorHandler;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.source.snapshot.incremental.SignalBasedIncrementalSnapshotContext;
+import io.debezium.pipeline.source.spi.EventMetadataProvider;
 import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.pipeline.txmetadata.TransactionContext;
 import io.debezium.relational.RelationalSnapshotChangeEventSource.RelationalSnapshotContext;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.HistoryRecordComparator;
+import io.debezium.snapshot.SnapshotterService;
 import io.debezium.util.Clock;
 import io.debezium.util.HexConverter;
 import io.debezium.util.Strings;
@@ -50,7 +52,7 @@ import io.debezium.util.Strings;
 /**
  * @author Chris Cranford
  */
-public class LogMinerAdapter extends AbstractStreamingAdapter {
+public class LogMinerAdapter extends AbstractStreamingAdapter<LogMinerStreamingChangeEventSourceMetrics> {
 
     private static final Duration GET_TRANSACTION_SCN_PAUSE = Duration.ofSeconds(1);
 
@@ -92,7 +94,8 @@ public class LogMinerAdapter extends AbstractStreamingAdapter {
                                                                                       OracleDatabaseSchema schema,
                                                                                       OracleTaskContext taskContext,
                                                                                       Configuration jdbcConfig,
-                                                                                      OracleStreamingChangeEventSourceMetrics streamingMetrics) {
+                                                                                      LogMinerStreamingChangeEventSourceMetrics streamingMetrics,
+                                                                                      SnapshotterService snapshotterService) {
         return new LogMinerStreamingChangeEventSource(
                 connectorConfig,
                 connection,
@@ -101,7 +104,16 @@ public class LogMinerAdapter extends AbstractStreamingAdapter {
                 clock,
                 schema,
                 jdbcConfig,
-                streamingMetrics);
+                streamingMetrics,
+                snapshotterService);
+    }
+
+    @Override
+    public LogMinerStreamingChangeEventSourceMetrics getStreamingMetrics(OracleTaskContext taskContext,
+                                                                         ChangeEventQueueMetrics changeEventQueueMetrics,
+                                                                         EventMetadataProvider metadataProvider,
+                                                                         OracleConnectorConfig connectorConfig) {
+        return new LogMinerStreamingChangeEventSourceMetrics(taskContext, changeEventQueueMetrics, metadataProvider, connectorConfig);
     }
 
     @Override
@@ -139,6 +151,16 @@ public class LogMinerAdapter extends AbstractStreamingAdapter {
             }
             return determineSnapshotOffset(connectorConfig, conn, currentScn.get(), pendingTransactions, tableName);
         }
+    }
+
+    @Override
+    public Scn getOffsetScn(OracleOffsetContext offsetContext) {
+        return offsetContext.getScn();
+    }
+
+    @Override
+    public OracleOffsetContext copyOffset(OracleConnectorConfig connectorConfig, OracleOffsetContext offsetContext) {
+        return new LogMinerOracleOffsetContextLoader(connectorConfig).load(offsetContext.getOffset());
     }
 
     private Optional<Scn> getCurrentScn(Scn latestTableDdlScn, OracleConnection connection) throws SQLException {
@@ -274,8 +296,8 @@ public class LogMinerAdapter extends AbstractStreamingAdapter {
     }
 
     private Scn getOldestScnAvailableInLogs(OracleConnectorConfig config, OracleConnection connection) throws SQLException {
-        final Duration archiveLogRetention = config.getLogMiningArchiveLogRetention();
-        final String archiveLogDestinationName = config.getLogMiningArchiveDestinationName();
+        final Duration archiveLogRetention = config.getArchiveLogRetention();
+        final String archiveLogDestinationName = config.getArchiveLogDestinationName();
         return connection.queryAndMap(SqlUtils.oldestFirstChangeQuery(archiveLogRetention, archiveLogDestinationName),
                 rs -> {
                     if (rs.next()) {
@@ -289,8 +311,8 @@ public class LogMinerAdapter extends AbstractStreamingAdapter {
     }
 
     private List<LogFile> getOrderedLogsFromScn(OracleConnectorConfig config, Scn sinceScn, OracleConnection connection) throws SQLException {
-        return LogMinerHelper.getLogFilesForOffsetScn(connection, sinceScn, config.getLogMiningArchiveLogRetention(),
-                config.isArchiveLogOnlyMode(), config.getLogMiningArchiveDestinationName())
+        final LogFileCollector collector = new LogFileCollector(config, connection);
+        return collector.getLogs(sinceScn)
                 .stream()
                 .sorted(Comparator.comparing(LogFile::getSequence))
                 .collect(Collectors.toList());

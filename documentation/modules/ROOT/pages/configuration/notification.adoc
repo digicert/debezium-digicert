@@ -1,5 +1,7 @@
 // Category: debezium-using
 // Type: assembly
+// Title: Configuring notifications to report connector status
+// ModuleID: configuring-notifications-to-report-connector-status
 [id="debezium-notification"]
 = {prodname} notifications
 ifdef::community[]
@@ -20,16 +22,16 @@ Notifications can be sent to the following channels:
 SinkNotificationChannel:: Sends notifications through the Connect API to a configured topic.
 LogNotificationChannel:: Notifications are appended to the log.
 JmxNotificationChannel:: Notifications are exposed as an attribute in a JMX bean.
+ifdef::community[]
 Custom:: Notifications are sent to a xref:debezium-notification-custom-channel[custom channel] that you implement.
-
+endif::community[]
 ifdef::product[]
 For details about {prodname} notifications, see the following topics::
 
 * xref:debezium-notifications-description-of-the-format-of-debezium-notifications[]
 * xref:debezium-notifications-types-of-debezium-notifications[]
 * xref:debezium-notifications-enabling-debezium-to-emit-events-to-notification-channels[]
-* xref:debezium-notification-custom-channel[]
-
+//   * xref:debezium-notification-custom-channel[]
 endif::product[]
 
 // Type: concept
@@ -56,6 +58,10 @@ In domain-driven design, exported events should always refer to an aggregate.
 |additional_data
 |A Map<String,String> with detailed information about the notification.
 For an example, see xref:debezium-notifications-about-the-progress-of-incremental-snapshots[{prodname} notifications about the progress of incremental snapshots].
+
+|timestamp
+|The time when the notification was created. 
+The value represents the number of milliseconds since the UNIX epoch.
 |===
 
 // Type: assembly
@@ -77,16 +83,127 @@ The following example shows a typical notification that provides the status of a
 {
     "id": "5563ae14-49f8-4579-9641-c1bbc2d76f99",
     "aggregate_type": "Initial Snapshot",
-    "type": "COMPLETED" <1>
+    "type": "COMPLETED", // <1>
+    "additional_data" : {
+        "connector_name": "myConnector"
+    },
+    "timestamp": "1695817046353"
 }
 ----
-<1> The type field can contain one of the following values:
+[cols="1,7a",options="header",subs="+attributes"]
+|===
+|Item |Description
 
-* `STARTED`
+|1
+|The `type` field can contain one of the following values:
+
 * `COMPLETED`
 * `ABORTED`
 * `SKIPPED`
 
+|===
+
+
+The following table shows examples of the different payloads that might be present in notifications that report the status of initial snapshots:
+
+|===
+|Status|Payload
+
+|STARTED
+a|[source, json]
+----
+  {
+      "id":"ff81ba59-15ea-42ae-b5d0-4d74f1f4038f",
+      "aggregate_type":"Initial Snapshot",
+      "type":"STARTED",
+      "additional_data":{
+         "connector_name":"my-connector"
+      },
+      "timestamp": "1695817046353"
+}
+----
+|IN_PROGRESS
+a|[source, json]
+----
+{
+   "id":"6d82a3ec-ba86-4b36-9168-7423b0dd5c1d",
+   "aggregate_type":"Initial Snapshot",
+   "type":"IN_PROGRESS",
+   "additional_data":{
+      "connector_name":"my-connector",
+      "data_collections":"table1, table2",
+      "current_collection_in_progress":"table1"
+   },
+   "timestamp": "1695817046353"
+}
+----
+Field `data_collection` are currently not supported for MongoDB connector
+
+|TABLE_SCAN_COMPLETED
+a|[source, json]
+----
+{
+   "id":"6d82a3ec-ba86-4b36-9168-7423b0dd5c1d",
+   "aggregate_type":"Initial Snapshot",
+   "type":"TABLE_SCAN_COMPLETED",
+   "additional_data":{
+      "connector_name":"my-connector",
+      "data_collection":"table1, table2",
+      "scanned_collection":"table1",
+      "total_rows_scanned":"100",
+      "status":"SUCCEEDED"
+   },
+   "timestamp": "1695817046353"
+}
+----
+In the preceding example, the `additional_data.status` field can contain one of the following values:
+
+`SQL_EXCEPTION`:: A SQL exception occurred while performing the snapshot.
+`SUCCEEDED`:: The snapshot completed successfully.
+
+Fields `total_rows_scanned` and `data_collection` are currently not supported for MongoDB connector
+|COMPLETED
+a|[source, json]
+----
+  {
+      "id":"ff81ba59-15ea-42ae-b5d0-4d74f1f4038f",
+      "aggregate_type":"Initial Snapshot",
+      "type":"COMPLETED",
+      "additional_data":{
+         "connector_name":"my-connector"
+      },
+      "timestamp": "1695817046353"
+}
+----
+|ABORTED
+a|[source, json]
+----
+  {
+      "id":"ff81ba59-15ea-42ae-b5d0-4d74f1f4038f",
+      "aggregate_type":"Initial Snapshot",
+      "type":"ABORTED",
+      "additional_data":{
+         "connector_name":"my-connector"
+      },
+      "timestamp": "1695817046353"
+}
+----
+|SKIPPED
+a|[source, json]
+----
+  {
+      "id":"ff81ba59-15ea-42ae-b5d0-4d74f1f4038f",
+      "aggregate_type":"Initial Snapshot",
+      "type":"SKIPPED",
+      "additional_data":{
+         "connector_name":"my-connector"
+      },
+      "timestamp": "1695817046353"
+}
+----
+|===
+
+// Type: reference
 // Title: Example: {prodname} notifications that report on the progress of incremental snapshots
 [id="debezium-notifications-about-the-progress-of-incremental-snapshots"]
 === {prodname} notifications about the progress of incremental snapshots
@@ -106,7 +223,8 @@ a|[source, json]
       "additional_data":{
          "connector_name":"my-connector",
          "data_collections":"table1, table2"
-      }
+      },
+      "timestamp": "1695817046353"
 }
 ----
 |Paused
@@ -119,7 +237,8 @@ a|[source, json]
       "additional_data":{
          "connector_name":"my-connector",
          "data_collections":"table1, table2"
-      }
+      },
+      "timestamp": "1695817046353"
 }
 ----
 |Resumed
@@ -132,7 +251,8 @@ a|[source, json]
    "additional_data":{
       "connector_name":"my-connector",
       "data_collections":"table1, table2"
-   }
+   },
+   "timestamp": "1695817046353"
 }
 ----
 |Stopped
@@ -144,7 +264,8 @@ a|[source, json]
    "type":"ABORTED",
    "additional_data":{
       "connector_name":"my-connector"
-   }
+   },
+   "timestamp": "1695817046353"
 }
 ----
 |Processing chunk
@@ -160,7 +281,8 @@ a|[source, json]
       "current_collection_in_progress":"table1",
       "maximum_key":"100",
       "last_processed_key":"50"
-   }
+   },
+   "timestamp": "1695817046353"
 }
 ----
 |Snapshot completed for a table
@@ -175,17 +297,22 @@ a|[source, json]
       "data_collection":"table1, table2",
       "scanned_collection":"table1",
       "total_rows_scanned":"100",
-      "status":"SUCCEEDED" // <1>
-   }
+      "status":"SUCCEEDED"
+   },
+   "timestamp": "1695817046353"
 }
 ----
-<1> The possible values are:
-* EMPTY - table is empty
-* NO_PRIMARY_KEY - table has no primary key necessary for snapshot
-* SKIPPED - snapshot for this kind of table is not supported, check logs for details
-* SQL_EXCEPTION - SQL exception caught while processing a snapshot
-* SUCCEEDED - snapshot completed successfully
-* UNKNOWN_SCHEMA - schema not found for table, check logs for the list of known tables
+In the preceding example, the `additional_data.status` field can contain one of the following values:
+
+`EMPTY`:: The table contains no values.
+`NO_PRIMARY_KEY`:: Cannot complete snapshot; table has no primary key.
+`SKIPPED`:: Cannot complete a snapshots for this type of table.
+Refer to the logs for details.
+`SQL_EXCEPTION`:: A SQL exception occurred while performing the snapshot.
+`SUCCEEDED`:: The snapshot completed successfully.
+`UNKNOWN_SCHEMA`:: Could not find a schema for the table.
+Check the logs for the list of known tables.
+
 |Completed
 a|[source, json]
 ----
@@ -195,7 +322,8 @@ a|[source, json]
    "type":"COMPLETED",
    "additional_data":{
       "connector_name":"my-connector"
-   }
+   },
+   "timestamp": "1695817046353"
 }
 ----
 |===
@@ -241,9 +369,10 @@ To discard a notification, call the `reset` operation on the bean.
 The notifications are also exposed as a JMX notification with type `debezium.notification`.
 To enable an application to listen for the JMX notifications that an MBean emits,  link:https://docs.oracle.com/javase/tutorial/jmx/notifs/index.html[subscribe the application to the notifications].
 
-// Type: assembly
-// Title: Setting up custom channels to deliver {prodname} notifications
-// ModuleID: debezium-notifications-setting-up-custom-channels-to-deliver-notifications
+ifdef::community[]
+//   Type: assembly
+//   Title: Setting up custom channels to deliver {prodname} notifications
+//   ModuleID: debezium-notifications-setting-up-custom-channels-to-deliver-notifications
 [id="debezium-notification-custom-channel"]
 == Custom notification channels
 
@@ -255,9 +384,9 @@ Adding a notification channel involves several steps:
 2. xref:deploying-a-debezium-custom-notification-channel[Deploy the notification channel].
 3. xref:configuring-connectors-to-use-a-custom-notification-channel[Enable connectors to use the custom notification channel by modifying the connector configuration].
 
-// Type: procedure
-// ModuleID: debezium-notifications-configuring-custom-notification-channels
-// Title: Configuring {prodname} custom notification channels
+//   Type: procedure
+//   ModuleID: debezium-notifications-configuring-custom-notification-channels
+//   Title: Configuring {prodname} custom notification channels
 [id="debezium-configuring-custom-notification-channels"]
 === Configuring custom notification channels
 
@@ -276,15 +405,28 @@ public interface NotificationChannel {
     void close(); // <4>
 }
 ----
-<1> The name of the channel.
+[cols="1,7a",options="header",subs="+attributes"]
+|===
+|Item |Description
+
+|1
+|The name of the channel.
 To enable {prodname} to use the channel, specify this name in the connector's `notification.enabled.channels` property.
-<2> Initializes specific configuration, variables, or connections that the channel requires.
-<3> Sends the notification on the channel.
+
+|2
+|Initializes specific configuration, variables, or connections that the channel requires.
+
+|3
+|ends the notification on the channel.
 {prodname} calls this method to report its status.
-<4> Closes all allocated resources.
+
+|4
+|Closes all allocated resources.
 {prodname} calls this method when the connector is stopped.
 
-// Type: concept
+|===
+
+//   Type: concept
 [id="debezium-core-module-dependency"]
 === {prodname} core module dependencies
 
@@ -299,11 +441,18 @@ You must include these compile dependencies in your project's `pom.xml` file, as
     <version>${version.debezium}</version> // <1>
 </dependency>
 ----
-<1> `${version.debezium}` represents the version of the {prodname} connector.
+[cols="1,7",options="header",subs="+attributes"]
+|===
+|Item |Description
+
+|1
+|`${version.debezium}` represents the version of the {prodname} connector.
+
+|===
 
 Declare your implementation in the `META-INF/services/io.debezium.pipeline.notification.channels.NotificationChannel` file.
 
-// Type: procedure
+//   Type: procedure
 [id="deploying-a-debezium-custom-notification-channel"]
 === Deploying a custom notification channel
 
@@ -318,8 +467,9 @@ To use a signaling channel with a connector, add the converter JAR file to the c
 
 NOTE: To use a custom notification channel with multiple connectors, you must place a copy of the notification channel JAR file in each connector subdirectory.
 
-// Type: procedure
+//   Type: procedure
 [id="configuring-connectors-to-use-a-custom-notification-channel"]
 === Configuring connectors to use a custom notification channel
 
 In the connector configuration, add the name of the custom notification channel to the `notification.enabled.channels` property.
+endif::community[]

@@ -87,17 +87,43 @@ public class ConnectorFactories {
 
     public ConnectorConfigBuilder mongo(MongoDatabaseController controller, String connectorName) {
         ConnectorConfigBuilder cb = new ConnectorConfigBuilder(connectorName);
-        String dbHost = controller.getDatabaseHostname();
-        int dbPort = controller.getDatabasePort();
-
-        return cb
+        cb
                 .put("topic.prefix", cb.getDbServerName())
                 .put("connector.class", "io.debezium.connector.mongodb.MongoDbConnector")
                 .put("task.max", 1)
-                .put("mongodb.hosts", "rs0/" + dbHost + ":" + dbPort)
                 .put("mongodb.user", ConfigProperties.DATABASE_MONGO_DBZ_USERNAME)
                 .put("mongodb.password", ConfigProperties.DATABASE_MONGO_DBZ_PASSWORD)
+                .addOperationRouterForTable("u", "customers")
+                .put("mongodb.connection.string", controller.getPublicDatabaseUrl());
+        return cb;
+    }
+
+    public ConnectorConfigBuilder shardedMongo(MongoDatabaseController controller, String connectorName) {
+        ConnectorConfigBuilder cb = new ConnectorConfigBuilder(connectorName);
+        cb
+                .put("topic.prefix", connectorName)
+                .put("connector.class", "io.debezium.connector.mongodb.MongoDbConnector")
+                .put("task.max", 1)
+                .put("mongodb.connection.string", controller.getPublicDatabaseUrl())
+                .put("mongodb.connection.mode", "sharded")
+                .addMongoDbzUser()
                 .addOperationRouterForTable("u", "customers");
+        return cb;
+    }
+
+    public ConnectorConfigBuilder shardedReplicaMongo(MongoDatabaseController controller, String connectorName) {
+
+        // String connectionUrl =;
+        ConnectorConfigBuilder cb = new ConnectorConfigBuilder(connectorName);
+        cb
+                .put("topic.prefix", connectorName)
+                .put("connector.class", "io.debezium.connector.mongodb.MongoDbConnector")
+                .put("task.max", 4)
+                .put("mongodb.connection.string", controller.getPublicDatabaseUrl())
+                .put("mongodb.connection.mode", "replica_set")
+                .addMongoDbzUser()
+                .addOperationRouterForTable("u", "customers");
+        return cb;
     }
 
     public ConnectorConfigBuilder db2(SqlDatabaseController controller, String connectorName) {
@@ -142,5 +168,23 @@ public class ConnectorFactories {
                 .put("schema.history.internal.kafka.topic", "schema-changes.oracle")
                 .put("log.mining.strategy", "online_catalog")
                 .addOperationRouterForTable("u", "CUSTOMERS");
+    }
+
+    public ConnectorConfigBuilder jdbcSink(SqlDatabaseController controller, String connectorName) {
+        ConnectorConfigBuilder cb = new ConnectorConfigBuilder(connectorName);
+        String dbHost = controller.getDatabaseHostname();
+        int dbPort = controller.getDatabasePort();
+        String connectionUrl = String.format("jdbc:mysql://%s:%s/inventory", dbHost, dbPort);
+        return cb
+                .put("connector.class", "io.debezium.connector.jdbc.JdbcSinkConnector")
+                .put("task.max", 1)
+                .put("connection.url", connectionUrl)
+                .put("connection.username", ConfigProperties.DATABASE_MYSQL_DBZ_USERNAME)
+                .put("connection.password", ConfigProperties.DATABASE_MYSQL_DBZ_PASSWORD)
+                .put("insert.mode", "upsert")
+                .put("primary.key.mode", "kafka")
+                .put("schema.evolution", "basic")
+                .put("database.time_zone", "UTC")
+                .put("topics", "jdbc_sink_test");
     }
 }

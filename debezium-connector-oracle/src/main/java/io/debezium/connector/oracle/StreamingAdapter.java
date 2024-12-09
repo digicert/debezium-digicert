@@ -8,13 +8,16 @@ package io.debezium.connector.oracle;
 import java.sql.SQLException;
 
 import io.debezium.config.Configuration;
+import io.debezium.connector.base.ChangeEventQueueMetrics;
 import io.debezium.pipeline.ErrorHandler;
 import io.debezium.pipeline.EventDispatcher;
+import io.debezium.pipeline.source.spi.EventMetadataProvider;
 import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.relational.RelationalSnapshotChangeEventSource.RelationalSnapshotContext;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.HistoryRecordComparator;
+import io.debezium.snapshot.SnapshotterService;
 import io.debezium.util.Clock;
 
 /**
@@ -22,7 +25,7 @@ import io.debezium.util.Clock;
  *
  * @author Chris Cranford
  */
-public interface StreamingAdapter {
+public interface StreamingAdapter<T extends AbstractOracleStreamingChangeEventSourceMetrics> {
 
     /**
      * Controls whether table names are viewed as case-sensitive or not.
@@ -57,7 +60,12 @@ public interface StreamingAdapter {
                                                                                OracleDatabaseSchema schema,
                                                                                OracleTaskContext taskContext,
                                                                                Configuration jdbcConfig,
-                                                                               OracleStreamingChangeEventSourceMetrics streamingMetrics);
+                                                                               T streamingMetrics, SnapshotterService snapshotterService);
+
+    T getStreamingMetrics(OracleTaskContext taskContext,
+                          ChangeEventQueueMetrics changeEventQueueMetrics,
+                          EventMetadataProvider metadataProvider,
+                          OracleConnectorConfig connectorConfig);
 
     /**
      * Returns whether table names are case sensitive.
@@ -98,4 +106,21 @@ public interface StreamingAdapter {
         return new OracleValueConverters(connectorConfig, connection);
     }
 
+    /**
+     * Returns the Scn stored in the offset.
+     *
+     * @param offsetContext the connector offset context
+     *
+     * @return the {@code Scn} stored in the offset
+     */
+    Scn getOffsetScn(OracleOffsetContext offsetContext);
+
+    /**
+     * Creates a copy of the existing offsets.
+     *
+     * @param connectorConfig the connector configuration, should never be {@code null}
+     * @param offsetContext the current offset context, should never be {@code null}
+     * @return a copy of the offset context for this adapter
+     */
+    OracleOffsetContext copyOffset(OracleConnectorConfig connectorConfig, OracleOffsetContext offsetContext);
 }

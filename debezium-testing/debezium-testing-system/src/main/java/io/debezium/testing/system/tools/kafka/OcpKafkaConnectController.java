@@ -37,7 +37,7 @@ import io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicyPortBuilder;
 import io.fabric8.openshift.api.model.Route;
 import io.fabric8.openshift.client.OpenShiftClient;
 import io.strimzi.api.kafka.Crds;
-import io.strimzi.api.kafka.model.KafkaConnect;
+import io.strimzi.api.kafka.model.connect.KafkaConnect;
 
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
@@ -87,7 +87,7 @@ public class OcpKafkaConnectController implements KafkaConnectController {
     @Override
     public void disable() {
         LOGGER.info("Disabling KafkaConnect deployment (scaling to ZERO).");
-        operatorController.disable();
+
         ocp.apps().deployments().inNamespace(project)
                 .withName(name + "-connect")
                 .scale(0);
@@ -99,6 +99,7 @@ public class OcpKafkaConnectController implements KafkaConnectController {
     }
 
     /**
+     * TODO: rewrite
      * Crashes Kafka Connect by force deleting all pods. Then it immediately scales its deployment to ZERO by calling {@link #disable()}
      * <p>
      * NOTICE: cluster operator is disabled once this method is called!
@@ -106,14 +107,23 @@ public class OcpKafkaConnectController implements KafkaConnectController {
     @Override
     public void destroy() {
         LOGGER.info("Force deleting all KafkaConnect pods.");
-        operatorController.disable();
-        ocp.pods().inNamespace(project).withLabel("strimzi.io/kind", "KafkaConnect").withGracePeriod(0).delete();
-        disable();
+
+        KafkaConnect kafkaConnect = Crds.kafkaConnectOperation(ocp).inNamespace(project).withName(name).get();
+        kafkaConnect.getSpec().setReplicas(0);
+        Crds.kafkaConnectOperation(ocp).inNamespace(project).createOrReplace(kafkaConnect);
+
+        await()
+                .atMost(scaled(30), SECONDS)
+                .pollDelay(5, SECONDS)
+                .pollInterval(3, SECONDS)
+                .until(() -> ocp.pods().inNamespace(project).withLabel("strimzi.io/kind", "KafkaConnect").list().getItems().isEmpty());
     }
 
     @Override
     public void restore() throws InterruptedException {
-        operatorController.enable();
+        KafkaConnect kafkaConnect = Crds.kafkaConnectOperation(ocp).inNamespace(project).withName(name).get();
+        kafkaConnect.getSpec().setReplicas(1);
+        Crds.kafkaConnectOperation(ocp).inNamespace(project).createOrReplace(kafkaConnect);
         waitForCluster();
     }
 
@@ -259,7 +269,17 @@ public class OcpKafkaConnectController implements KafkaConnectController {
      */
     @Override
     public boolean undeploy() {
-        return kafkaConnectOperation(ocp).delete(kafkaConnect);
+        try {
+            kafkaConnectOperation(ocp).resource(kafkaConnect).delete();
+            kafkaConnectOperation(ocp)
+                    .resource(kafkaConnect)
+                    .waitUntilCondition(WaitConditions::resourceDeleted, scaled(1), MINUTES);
+        }
+        catch (Exception exception) {
+            LOGGER.error("Kafka connect cluster was not deleted");
+            return false;
+        }
+        return true;
     }
 
     @Override

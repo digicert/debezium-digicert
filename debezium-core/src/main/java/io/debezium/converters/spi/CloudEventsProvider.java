@@ -5,8 +5,7 @@
  */
 package io.debezium.converters.spi;
 
-import org.apache.kafka.connect.data.Schema;
-import org.apache.kafka.connect.data.Struct;
+import io.debezium.converters.recordandmetadata.RecordAndMetadata;
 
 /**
  * A {@link java.util.ServiceLoader} interface that connectors should implement if they wish to provide
@@ -23,22 +22,14 @@ public interface CloudEventsProvider {
     String getName();
 
     /**
-     * Create a concrete parser of a change record for the connector.
-     *
-     * @param schema the schema of the record
-     * @param record the value of the record
-     * @return a concrete parser
-     */
-    RecordParser createParser(Schema schema, Struct record);
-
-    /**
      * Create a concrete CloudEvents maker using the outputs of a record parser. Also need to specify the data content
      * type (that is the serialization format of the data attribute).
      *
-     * @param parser the parser of a change record
-     * @param contentType the data content type of CloudEvents
+     * @param recordAndMetadata a structure containing the record and its metadata
+     * @param contentType       the data content type of CloudEvents
      * @param dataSchemaUriBase the URI of the schema in case of Avro; may be null
      * @return a concrete CloudEvents maker
      */
-    CloudEventsMaker createMaker(RecordParser parser, SerializerType contentType, String dataSchemaUriBase);
+    CloudEventsMaker createMaker(RecordAndMetadata recordAndMetadata, SerializerType contentType, String dataSchemaUriBase,
+                                 String cloudEventsSchemaName);
 }

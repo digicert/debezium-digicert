@@ -1,7 +1,10 @@
+// Category: debezium-using
+// Type: assembly
 [id="debezium-connector-for-jdbc"]
 = {prodname} connector for JDBC
 :context: JDBC
 :mbean-name: {context}
+ifdef::community[]
 :toc:
 :toc-placement: macro
 :linkattrs:
@@ -10,18 +13,16 @@
 
 toc::[]
 
-[NOTE]
-====
-This connector is currently in an incubating state. In future versions, we might change the exact semantics, configuration options, and so forth, depending on the feedback that we receive.
-Please let us know if you encounter any problems.
-====
-
 [[jdbc-overview]]
 == Overview
+endif::community[]
 
 The {prodname} JDBC connector is a Kafka Connect sink connector implementation that can consume events from multiple source topics, and then write those events to a relational database by using a JDBC driver.
 This connector supports a wide variety of database dialects, including Db2, MySQL, Oracle, PostgreSQL, and SQL Server.
 
+// Type: assembly
+// ModuleID: debezium-jdbc-connector-how-the-debezium-connector-works
+// Title: How the {prodname} JDBC connector works
 [[how-the-jdbc-connector-works]]
 == How the JDBC connector works
 
@@ -29,38 +30,49 @@ The {prodname} JDBC connector is a Kafka Connect sink connector, and therefore r
 The connector periodically polls the Kafka topics that it subscribes to, consumes events from those topics, and then writes the events to the configured relational database.
 The connector supports idempotent write operations by using upsert semantics and basic schema evolution.
 
-The following features are supported:
+The {prodname} JDBC connector provides the following features:
 
-  * xref:jdbc-consume-complex-debezium-events[]
-  * xref:jdbc-at-least-once-delivery[]
-  * xref:jdbc-multiple-tasks[]
-  * xref:jdbc-data-and-type-mappings[]
-  * xref:jdbc-primary-key-handling[]
-  * xref:jdbc-delete-mode[]
-  * xref:jdbc-idempotent-writes[]
-  * xref:jdbc-schema-evolution[]
-  * xref:jdbc-quoting-case-sensitivity[]
+* xref:jdbc-consume-complex-debezium-events[]
+* xref:jdbc-at-least-once-delivery[]
+* xref:jdbc-multiple-tasks[]
+* xref:jdbc-data-and-type-mappings[]
+* xref:jdbc-primary-key-handling[]
+* xref:jdbc-delete-mode[]
+* xref:jdbc-idempotent-writes[]
+* xref:jdbc-schema-evolution[]
+* xref:jdbc-quoting-case-sensitivity[]
+* xref:jdbc-connection-idle-timeouts[]
 
+// Type: concept
+// Title: Description of how the {prodname} JDBC connector consumes complex change events
+// ModuleID: debezium-jdbc-connector-description-of-how-the-connector-consumes-complex-change-events
 [[jdbc-consume-complex-debezium-events]]
 === Consuming complex {prodname} change events
 
 By default, {prodname} source connectors produce complex, hierarchical change events.
 When {prodname} connectors are used with other JDBC sink connector implementations, you might need to apply the `ExtractNewRecordState` single message transformation (SMT) to flatten the payload of change events, so that they can be consumed by the sink implementation.
-If you run the {prodname} JDBC sink connector, it's not necessary to deploy the SMT,  because the {prodname} sink connector can consume native {prodname} change events directly, without the use of a transformation.
+If you run the {prodname} JDBC sink connector, it's not necessary to deploy the SMT, because the {prodname} sink connector can consume native {prodname} change events directly, without the use of a transformation.
 
 When the JDBC sink connector consumes a complex change event from a {prodname} source connector, it extracts the values from the `after` section of the original `insert` or `update` event.
 When a delete event is consumed by the sink connector, no part of the event's payload is consulted.
 
 [IMPORTANT]
 ====
-The {prodname} JDBC sink connector is not designed to read from schema change topics. 
+The {prodname} JDBC sink connector is not designed to read from schema change topics.
 If your source connector is configured to capture schema changes, in the JDBC connector configuration, set the xref:jdbc-property-connection-topics[`topics`] or xref:jdbc-property-connection-topics-regex[`topics.regex`] properties so that the connector does not consume from schema change topics.
 ====
 
+// Type:concept
+// Title: Description of {prodname} JDBC connector at-least-once delivery
+// ModuleID: debezium-jdbc-connector-description-of-at-least-once-delivery
 [[jdbc-at-least-once-delivery]]
 === At-least-once delivery
 
 The {prodname} JDBC sink connector guarantees that events that is consumes from Kafka topics are processed at least once.
+
+// Type: concept
+// Title: Description of {prodname} JDBC use of multiple tasks
+// ModuleID: debezium-jdbc-connector-description-of-the-connector-use-of-multiple-tasks
 
 [[jdbc-multiple-tasks]]
 === Multiple tasks
@@ -70,6 +82,9 @@ To run the connector across multiple tasks, set the `tasks.max` configuration pr
 The Kafka Connect runtime starts the specified number of tasks, and runs one instance of the connector per task.
 Multiple tasks can improve performance by reading and processing changes from multiple source topics in parallel.
 
+// Type: concept
+// Title: Description of {prodname} JDBC connector data and column type mappings
+// ModuleID: debezium-jdbc-connector-description-of-data-and-column-type-mappings
 [[jdbc-data-and-type-mappings]]
 === Data and column type mappings
 
@@ -84,6 +99,9 @@ In addition, the payload of the source message must be a `Struct` that has eithe
 
 If the structure of the events in the Kafka topic do not adhere to these rules, you must implement a custom single message transformation to convert the structure of the source events into a usable format.
 
+// Type: concept
+// Title: Description of how the {prodname} JDBC connector handles primary keys in source events
+// ModuleID: debezium-jdbc-connector-description-of-how-the-connector-handles-primary-keys-in-source-events
 [[jdbc-primary-key-handling]]
 === Primary key handling
 
@@ -138,27 +156,41 @@ To avoid this problem, apply the following settings in your environment:
 * Create the database table and primary key mappings in advance.
 ====
 
+[IMPORTANT]
+====
+If a column maps to a data type that isn't permitted as a primary key for your target database, an explicit list of columns will be necessary in `primary.key.fields` excluding such columns.
+Consult your specific database vendor's documentation for what data types are and are not permissible.
+====
+
+// Type: procedure
+// Title: Configuring the {prodname} JDBC connector to delete rows when consuming `DELETE` or _tombstone_ events
+// ModuleID: debezium-jdbc-connector-configuring-the-connector-to-delete-rows
 [[jdbc-delete-mode]]
 === Delete mode
 
 The {prodname} JDBC sink connector can delete rows in the destination database when a `DELETE` or _tombstone_ event is consumed.
 By default, the JDBC sink connector does not enable delete mode.
 
-If you want to support removal of rows, explicitly enable it in the connector configuration by setting `delete.enabled=true` in the connector configuration.
-However, to use this mode you must set xref:jdbc-property-primary-key-fields[`primary.key.fields`] to a value other than `none`.
+If you want to the connector to remove rows, you must explicitly set `delete.enabled=true` in the connector configuration.
+To use this mode you must also set xref:jdbc-property-primary-key-fields[`primary.key.fields`] to a value other than `none`.
 The preceding configuration is necessary, because deletes are executed based on the primary key mapping, so if a destination table has no primary key mapping, the connector is unable to delete rows.
 
+// Type: procedure
+// Title: Enabling the connector to perform idempotent writes
+// ModuleID: debezium-jdbc-connector-enabling-idempotent-writes
 [[jdbc-idempotent-writes]]
 === Idempotent writes
 
-The {prodname} JDBC sink connector supports idempotent writes, allowing the same records to be replayed repeatedly and the final database state to remain consistent.
-In order to support idempotent writes, the JDBC sink connector must be explicitly configured with the `insert.mode` set to `upsert`.
+The {prodname} JDBC sink connector can perform idempotent writes, enabling it to replay the same records repeatedly and not change the final database state.
+
+To enable the connector to perform idempotent writes, you must be explicitly set the `insert.mode` for the connector to `upsert`.
 An `upsert` operation is applied as either an `update` or an `insert`, depending on whether the specified primary key already exists.
+
 If the primary key value already exists, the operation updates values in the row.
 If the specified primary key value doesn't exist, an `insert` adds a new row.
 
 Each database dialect handles idempotent writes differently, because there is no SQL standard for _upsert_ operations.
-The following illustrates the upsert database-specific DML syntax that is used by the supported database  dialects:
+The following table shows the `upsert` DML syntax for the database dialects that {prodname} supports:
 
 |===
 |Dialect |Upsert Syntax
@@ -180,10 +212,13 @@ The following illustrates the upsert database-specific DML syntax that is used b
 
 |===
 
+// Type: reference
+// Title: Schema evolution modes for the {prodname} JDBC connector
+// ModuleID: debezium-jdbc-connector-schema-evolution-modes
 [[jdbc-schema-evolution]]
 === Schema evolution
 
-The {prodname} JDBC sink connector supports the following schema evolution modes:
+You can use the following schema evolution modes with the {prodname} JDBC sink connector:
 
 |===
 |Mode |Description
@@ -225,6 +260,9 @@ If you want a field to be removed from the destination table, use one of the fol
 * Define the field a nullable.
 ====
 
+// Type: procedure
+// Title: Specifying options to define the letter case of destination table and column names
+// ModuleID: debezium-jdbc-connector-specifying-options-to-define-letter-case-of-destination-names
 [[jdbc-quoting-case-sensitivity]]
 === Quoting and case sensitivity
 
@@ -236,10 +274,41 @@ As a result, by default, the text case of table or column names in the destinati
 For example, if the destination database dialect is Oracle and the event's topic is `orders`, the destination table will be created as `ORDERS` because Oracle defaults to upper-case names when the name is not quoted.
 Similarly, if the destination database dialect is PostgreSQL and the event's topic is `ORDERS`, the destination table will be created as `orders` because PostgreSQL defaults to lower-case names when the name is not quoted.
 
-By setting `quote.identifiers` to `true` in the connector configuration, you can explicitly set the case of the table and field names to preserve the case that is present in the Kafka event.
-So if the incoming event is for a topic called `orders` and the destination database dialect is Oracle, if quoting is enabled -- that is, if `quote.identifiers` is set to `true` -- the connector creates a table with the name `orders`, because the constructed SQL defines the name of the table as `"orders"`.
-When quoting is enabled, the behavior for creating column names works in the same manner.
+To explicitly preserve the case of the table and field names that are present in a Kafka event, in the connector configuration, set the value of the `quote.identifiers` property to `true`.
+When this options is set, when an incoming event is for a topic called `orders`, and the destination database dialect is Oracle, the connector creates a table with the name `orders`, because the constructed SQL defines the name of the table as `"orders"`.
+Enabling quoting results in the same behavior when the connector creates column names.
 
+[[jdbc-connection-idle-timeouts]]
+=== Connection Idle Timeouts
+
+The JDBC sink connector for {prodname} leverages a connection pool to enhance performance.
+Connection pools are engineered to establish an initial set of connections, maintain a specified number of connections, and efficiently allocate connections to the application as required.
+However, a challenge arises when connections linger idle in the pool, potentially triggering timeouts if they remain inactive beyond the configured idle timeout threshold of the database.
+
+To mitigate the potential for idle connection threads to trigger timeouts, connection pools offer a mechanism that periodically validates the activity of each connection.
+This validation ensures that connections remain active, and prevents the database from flagging them as idle.
+In the event of a network disruption, if {prodname} attempts to use a terminated connection, the connector prompts the pool to generate a new connection.
+
+By default, the {prodname} JDBC sink connector does not conduct idle timeout tests.
+However, you can configure the connector to request the pool to perform timeout tests at a specified interval by setting the `hibernate.c3p0.idle_test_period` property.
+For example:
+
+.Example timeout configuration
+[source,json]
+----
+{
+  "hibernate.c3p0.idle_test_period": "300"
+}
+----
+
+The {prodname} JDBC sink connector uses the Hibernate C3P0 connection pool.
+You can customize the CP30 connection pool by setting properties in the hibernate.c3p0.*` configuration namespace.
+In the preceding example, the setting of the hibernate.c3p0.idle_test_period property configures the connection pool to perform idle timeout tests every 300 seconds.
+After you apply the configuration, the connection pool begins to assess unused connections every five minutes.
+
+// Type: reference
+// ModuleID: debezium-jdbc-connector-how-the-connector-maps-data-types
+// Title: How the {prodname} JDBC connector maps data types
 [[jdbc-field-types]]
 == Data type mappings
 
@@ -455,18 +524,23 @@ For example, let's say the following field schema is included in a change event:
 }
 ----
 
-In the preceding example, if no schema parameters are set, the {prodname} JDBC sink connector would map this field to a column type of `Types.SMALLINT`.
+In the preceding example, if no schema parameters are set, the {prodname} JDBC sink connector maps this field to a column type of `Types.SMALLINT`.
 `Types.SMALLINT` can have different logical database types, depending on the database dialect.
-For MySQL, the example would convert to a `TINYINT` column type with no specified length.
+For MySQL, the column type in the example converts to a `TINYINT` column type with no specified length.
 If column or data type propagation is enabled for the source connector, the {prodname} JDBC sink connector uses the mapping information to refine the data type mapping process and create a column with the type `TINYINT(1)`.
 
 [NOTE]
 ====
 Typically, the effect of using column or data type propagation is much greater when the same type of database is used for both the source and sink database.
+ifdef::community[]
 We are continually looking at ways to improve this mapping across heterogeneous databases and the current type system allows us to continue to refine these mappings based on feedback.
 If you find a mapping could be improved, please let us know.
+endif::community[]
 ====
 
+// Type: assembly
+// ModuleID: debezium-jdbc-connector-deployment
+// Title: Deployment of {prodname} JDBC connectors
 [[jdbc-deployment]]
 == Deployment
 
@@ -474,7 +548,7 @@ To deploy a {prodname} JDBC connector, you install the {prodname} JDBC connector
 
 .Prerequisites
 * link:https://zookeeper.apache.org/[Apache ZooKeeper], link:http://kafka.apache.org/[Apache Kafka], and link:{link-kafka-docs}.html#connect[Kafka Connect] are installed.
-* Destination database is installed and configured to accept JDBC connections.
+* A destination database is installed and configured to accept JDBC connections.
 
 .Procedure
 
@@ -482,11 +556,18 @@ To deploy a {prodname} JDBC connector, you install the {prodname} JDBC connector
 . Extract the files into your Kafka Connect environment.
 . Optionally download the JDBC driver from Maven Central and extract the downloaded driver file to the directory that contains the JDBC sink connector JAR file.
 +
-NOTE: Drivers for Oracle and Db2 are not automatically shipped with the JDBC sink connector and must be manually installed.
-. Add the driver JAR files to the path where the JDBC sink connector has been installed.
-. Make sure that the path where the JDBC sink connector is installed is part of {link-kafka-docs}/#connectconfigs[Kafka Connect's `plugin.path`].
-. Restart your Kafka Connect process to pick up the new JAR files.
+[NOTE]
+====
+Drivers for Oracle and Db2 are not included with the JDBC sink connector.
+You must download the drivers and install them manually.
+====
 
+. Add the driver JAR files to the path where the JDBC sink connector has been installed.
+. Make sure that the path where you install the JDBC sink connector is part of the {link-kafka-docs}/#connectconfigs[Kafka Connect `plugin.path`].
+. Restart the Kafka Connect process to pick up the new JAR files.
+
+// ModuleID: debezium-jdbc-connector-configuration
+// Type: reference
 [[jdbc-connector-configuration]]
 === {prodname} JDBC connector configuration
 
@@ -513,21 +594,51 @@ The following example shows a JSON request for registering an instance of the {p
     }
 }
 ----
-<1> The name that is assigned to the connector when you register it with Kafka Connect service.
-<2> The name of the JDBC sink connector class.
-<3> The maximum number of tasks to create for this connector.
-<4> The JDBC URL that the connector uses to connect to the sink database that it writes to.
-<5> The name of the database user used for authentication.
-<6> The password of the database user used for authentication.
-<7> The xref:jdbc-property-insert-mode[insert.mode] that the connector uses.
-<8> Enables the deletion of records in the database.
+Descriptions of JDBC connector configuration settings
+[cols="1,7",options="header",subs="+attributes"]
+|===
+|Item |Description
+
+|1
+|The name that is assigned to the connector when you register it with Kafka Connect service.
+
+|2
+|The name of the JDBC sink connector class.
+
+|3
+|The maximum number of tasks to create for this connector.
+
+|4
+|The JDBC URL that the connector uses to connect to the sink database that it writes to.
+
+|5
+|The name of the database user that is used for authentication.
+
+|6
+|The password of the database user used for authentication.
+
+|7
+|The xref:jdbc-property-insert-mode[insert.mode] that the connector uses.
+
+|8
+|Enables the deletion of records in the database.
 For more information, see the xref:jdbc-property-delete-enabled[delete.enabled] configuration property.
-<9> Specifies the method used to resolve primary key columns.
+
+|9
+|Specifies the method used to resolve primary key columns.
 For more information, see the xref:jdbc-property-primary-key-mode[primary.key.mode] configuration property.
-<10> Enables the connector to evolve the destination database's schema.
+
+|10
+|Enables the connector to evolve the destination database's schema.
 For more information, see the xref:jdbc-property-schema-evolution[schema.evolution] configuration property.
-<11> Specifies the timezone used when writing temporal field types.
-<12> List of topics to consume, separated by commas.
+
+|11
+|Specifies the timezone used when writing temporal field types.
+
+|12
+|List of topics to consume, separated by commas.
+
+|===
 
 For a complete list of configuration properties that you can set for the {prodname} JDBC connector, see xref:jdbc-connector-properties[JDBC connector properties].
 
@@ -538,6 +649,10 @@ The service records the configuration and starts a sink connector task(s) that p
 * Consumes events from subscribed Kafka topics.
 * Writes the events to the configured database.
 
+
+// Type: reference
+// Title: Descriptions of {prodname} JDBC connector configuration properties
+// ModuleID: debezium-jdbc-connector-descriptions-of-connector-configuration-properties
 [[jdbc-connector-properties]]
 == Connector properties
 
@@ -545,26 +660,28 @@ The {prodname} JDBC sink connector has several configuration properties that you
 Many properties have default values.
 Information about the properties is organized as follows:
 
-* xref:jdbc-connector-properties-generic[]
-* xref:jdbc-connector-properties-connection[]
-* xref:jdbc-connector-properties-runtime[]
-* xref:jdbc-connector-properties-extendable[]
+* xref:jdbc-connector-properties-generic[JCBC connector generic properties]
+* xref:jdbc-connector-properties-connection[JDBC connector connection properties]
+* xref:jdbc-connector-properties-runtime[JDBC connector runtime properties]
+* xref:jdbc-connector-properties-extendable[JDBC connector extendable properties]
+* xref:jdbc-connector-hibernate-passthrough-properties[JDBC connector `hibernate.*` passthrough properties]
 
 [[jdbc-connector-properties-generic]]
-.Generic properties
+=== JDBC connector generic properties
+
 [cols="30%a,25%a,45%a"]
 |===
 |Property |Default |Description
 
 |[[jdbc-property-connection-name]]<<jdbc-property-connection-name, `+name+`>>
 |No default
-|Unique name for the connector. 
-A failure results if you attempt to reuse this name when registering a connector.   
+|Unique name for the connector.
+A failure results if you attempt to reuse this name when registering a connector.
 This property is required by all Kafka Connect connectors.
 
 |[[jdbc-property-connection-class]]<<jdbc-property-connection-class, `+connector.class+`>>
 |No default
-|The name of the Java class for the connector. 
+|The name of the Java class for the connector.
 For the {prodname} JDBC connector, specify the value `io.debezium.connector.jdbc.JdbcSinkConnector`.
 
 |[[jdbc-property-connection-task]]<<jdbc-property-connection-task, `+tasks.max+`>>
@@ -578,18 +695,22 @@ Do not use this property in combination with the xref:jdbc-property-connection-t
 
 |[[jdbc-property-connection-topics-regex]]<<jdbc-property-connection-topics-regex, `+topics.regex+`>>
 |No default
-|A regular expression that specifies the topics to consume. 
-Internally, the regular expression is compiled to a `java.util.regex.Pattern`. 
+|A regular expression that specifies the topics to consume.
+Internally, the regular expression is compiled to a `java.util.regex.Pattern`.
 Do not use this property in combination with the xref:jdbc-property-connection-topics[`topics`] property.
-
 
 |===
 
 [[jdbc-connector-properties-connection]]
-.Connection properties
+=== JDBC connector connection properties
+
 [cols="30%a,25%a,45%a"]
 |===
 |Property |Default |Description
+
+|[[jdbc-property-connection-provider]]<<jdbc-property-connection-provider, `+connection.provider+`>>
+|`org.hibernate.c3p0.internal.C3P0ConnectionProvider`
+|The connection provider implementation to use.
 
 |[[jdbc-property-connection-url]]<<jdbc-property-connection-url, `+connection.url+`>>
 |No default
@@ -607,7 +728,7 @@ Do not use this property in combination with the xref:jdbc-property-connection-t
 |`5`
 |Specifies the minimum number of connections in the pool.
 
-|[[jdbc-property-connection-pool-max-size]]<<jdbc-property-connection-pool-max-size, `+connection.pool.min_size+`>>
+|[[jdbc-property-connection-pool-max-size]]<<jdbc-property-connection-pool-max-size, `+connection.pool.max_size+`>>
 |`32`
 |Specifies the maximum number of concurrent connections that the pool maintains.
 
@@ -622,7 +743,8 @@ Do not use this property in combination with the xref:jdbc-property-connection-t
 |===
 
 [[jdbc-connector-properties-runtime]]
-.Runtime properties
+=== JDBC connector runtime properties
+
 [cols="30%a,25%a,45%a"]
 |===
 |Property |Default |Description
@@ -635,6 +757,23 @@ Do not use this property in combination with the xref:jdbc-property-connection-t
 |`false`
 |Specifies whether the connector processes `DELETE` or _tombstone_ events and removes the corresponding row from the database.
 Use of this option requires that you set the xref:jdbc-property-primary-key-mode[`primary.key.mode`] to `record.key`.
+
+|[[jdbc-property-truncate-enabled]]<<jdbc-property-truncate-enabled, `+truncate.enabled+`>>
+|`false`
+|Specifies whether the connector processes `TRUNCATE` events and truncates the corresponding tables from the database.
+
+[NOTE]
+====
+Although support for `TRUNCATE` statements has been available in Db2 since link:https://www.ibm.com/support/pages/apar/JR37942/[version 9.7],
+currently, the JDBC connector is unable to process standard `TRUNCATE` events that the Db2 connector emits.
+
+To ensure that the JDBC connector can process `TRUNCATE` events received from Db2, perform the truncation by using an alternative to the standard `TRUNCATE TABLE` statement.
+For example:
+
+`ALTER TABLE _<table_name>_ ACTIVATE NOT LOGGED INITIALLY WITH EMPTY TABLE`
+
+The user account that submits the preceding query requires `ALTER` privileges on the table to be truncated.
+====
 
 |[[jdbc-property-insert-mode]]<<jdbc-property-insert-mode, `+insert.mode+`>>
 |`insert`
@@ -674,7 +813,7 @@ You can set the xref:jdbc-property-primary-key-fields[`primary.key.fields`] prop
 When xref:jdbc-property-primary-key-mode[`primary.key.mode`] is set to `record_key` and the event's key is a primitive type, it is expected that this property specifies the column name to be used for the key. +
  +
 When the xref:jdbc-property-primary-key-mode[`primary.key.mode`] is set to `record_key` with a non-primitive key, or `record_value`, it is expected that this property specifies a comma-separated list of field names from either the key or value.
-If the xref:jdbc-property-primary-key-mode[`primary.key.mode`] is set to `record_key` with a non-primitive key, or `record_value`, and this property is not specifies, the connector derives the primary key from all fields of either the record key or record value, depending on the specified mode.
+If the xref:jdbc-property-primary-key-mode[`primary.key.mode`] is set to `record_key` with a non-primitive key, or `record_value`, and this property is not specified, the connector derives the primary key from all fields of either the record key or record value, depending on the specified mode.
 
 |[[jdbc-property-quote-identifiers]]<<jdbc-property-quote-identifiers, `+quote.identifiers+`>>
 |`false`
@@ -692,9 +831,17 @@ The following options are available:
 The connector adds missing columns to the table by comparing the incoming event's record schema to the database table structure.
 
 |[[jdbc-property-table-name-format]]<<jdbc-property-table-name-format, `+table.name.format+`>>
-|`${topic}`
-|Specifies a string that determines how the destination table name is formatted, based on the topic name of the event.
-The placeholder, `${topic}`, is replaced by the topic name.
+|`+${topic}+`
+|Specifies a string pattern that the connector uses to construct the names of destination tables. +
+When the property is set to its default value, `+${topic}+`, after the connector reads an event from Kafka, it writes the event record to a destination table with a name that matches the name of the source topic. +
+ +
+You can also configure this property to extract values from specific fields in incoming event records and then use those values to dynamically generate the names of target tables.
+This ability to generate table names from values in the message source would otherwise require the use of a custom Kafka Connect single message transformation (SMT). +
+ +
+To configure the property to dynamically generate the names of destination tables, set its value to a pattern such as `+${source._field_}+`.
+When you specify this type of pattern, the connector extracts values from the `source` block of the {prodname} change event, and then uses those values to construct the table name.
+For example, you might set the value of the property to the pattern `+${source.schema}_${source.table}+`.
+Based on this pattern, if the connector reads an event in which the `schema` field in the source block contains the value, `user`, and the `table` field contains the value, `tab`, the connector writes the event record to a table with the name `user_tab`.
 
 |[[jdbc-property-dialect-postgres-postgis-schema]]<<jdbc-property-dialect-postgres-postgis-schema, `+dialect.postgres.postgis.schema+`>>
 |`public`
@@ -705,10 +852,49 @@ The default is `public`; however, if the PostGIS extension was installed in anot
 |`false`
 |Specifies whether the connector automatically sets an `IDENTITY_INSERT` before an `INSERT` or `UPSERT` operation into the identity column of SQL Server tables, and then unsets it immediately after the operation.
 When the default setting (`false`) is in effect, an `INSERT` or `UPSERT` operation into the `IDENTITY` column of a table results in a SQL exception.
+
+|[[jdbc-property-batch-size]]<<jdbc-property-batch-size, `+batch.size+`>>
+|`500`
+|Specifies how many records to attempt to batch together into the destination table.
+
+[NOTE]
+====
+Note that if you set `_consumer.max.poll.records_` in the Connect worker properties to a value lower than `_batch.size_`, batch processing will be caped by `_consumer.max.poll.records_` and the desired `_batch.size_` won’t be reached.
+You can also configure the connector’s underlying consumer’s `_max.poll.records_` using `_consumer.override.max.poll.records_` in the connector configuration.
+====
+
+|[[jdbc-property-use-reduction-buffer]]<<jdbc-property-use-reduction-buffer, `+use.reduction.buffer+`>>
+|`false`
+|Specifies whether to enable the {prodname} JDBC connector's reduction buffer.
+
+Choose one of the following settings:
+
+`false`:: (default) The connector writes each change event that it consumes from Kafka as a separate logical SQL change.
+`true`:: The connector uses the reduction buffer to reduce change events before it writes them to the sink database.
+That is, if multiple events refer to the same primary key, the connector consolidates the SQL queries and writes only a single logical SQL change, based on the row state that is reported in the most recent offset record. +
+Choose this option to reduce the SQL load on the target database.
+
+To optimize query processing in a PostgreSQL sink database when the reduction buffer is enabled, you must also enable the database to execute the batched queries by adding the `reWriteBatchedInserts` parameter to the JDBC connection URL.
+
+|[[jdbc-property-field-include-list]]<<jdbc-property-field-include-list, `+field.include.list+`>>
+|_empty string_
+|An optional, comma-separated list of field names that match the fully-qualified names of fields to include from the change event value.
+Fully-qualified names for fields are of the form `_fieldName_` or `_topicName_:_fieldName_`. +
+ +
+If you include this property in the configuration, do not set the `field.exclude.list` property.
+
+|[[jdbc-property-field-exclude-list]]<<jdbc-property-field-exclude-list, `+field.exclude.list+`>>
+|_empty string_
+|An optional, comma-separated list of field names that match the fully-qualified names of fields to exclude from the change event value.
+Fully-qualified names for fields are of the form `_fieldName_` or `_topicName_:_fieldName_`. +
+ +
+If you include this property in the configuration, do not set the `field.include.list` property.
+
 |===
 
 [[jdbc-connector-properties-extendable]]
-.Extendable properties
+=== JDBC connector extendable properties
+
 [cols="30%a,25%a,45%a"]
 |===
 |Property |Default |Description
@@ -724,11 +910,25 @@ By default, the connector uses the field name as the column name.
  +
 The default behavior is to: +
 
-* Replace the `${topic}` placeholder in the xref:jdbc-property-table-name-format[`table.name.format`] configuration property with the event's topic.
+* Replace the `+${topic}+` placeholder in the xref:jdbc-property-table-name-format[`table.name.format`] configuration property with the event's topic.
 * Sanitize the table name by replacing dots (`.`) with underscores (`_`).
 
 |===
 
+[id="jdbc-connector-hibernate-passthrough-properties"]
+=== JDBC connector `hibernate.*` passthrough properties
+
+Kafka Connect supports passthrough configuration, enabling you to modify the behavior of an underlying system by passing certain properties directly from the connector configuration.
+By default, some Hibernate properties are exposed via the JDBC connector xref:jdbc-connector-properties-connection[connection properties] (for example, `connection.url`, `connection.username`, and `connection.pool.*_size`),
+and through the connector's xref:jdbc-connector-properties-runtime[runtime properties] (for example, `database.time_zone`, `quote.identifiers`).
+
+If you want to customize other Hibernate behavior, you can take advantage of the passthrough mechanism by adding properties that use the `hibernate.*` namespace to the connector configuration.
+For example, to assist Hibernate in resolving the type and version of the target database, you can add the `hibernate.dialect` property and set it to the fully qualified class name of the database, for example, `org.hibernate.dialect.MariaDBDialect`.
+
+
+// Type: concept
+// ModuleID: debezium-jdbc-connector-frequently-asked-questions
+// Title: JDBC connector frequently asked questions
 [[jdbc-faq]]
 == Frequently asked questions
 
@@ -751,7 +951,7 @@ If you want to apply a different data type mapping, define the table manually to
 
 *How do you specify a prefix or a suffix to the table name without changing the Kafka topic name?*::
 In order to add a prefix or a suffix to the destination table name, adjust the xref:jdbc-property-table-name-format[table.name.format] connector configuration property to apply the prefix or suffix that you want.
-For example, to prefix all table names with `jdbc_`, specify the `table.name.format` configuration property with a value of `jdbc_${topic}`.
+For example, to prefix all table names with `jdbc_`, specify the `table.name.format` configuration property with a value of `+jdbc_${topic}+`.
 If the connector is subscribed to a topic called `orders`, the resulting table is created as `jdbc_orders`.
 
 *Why are some columns automatically quoted, even though identifier quoting is not enabled?*::
@@ -759,4 +959,3 @@ In some situations, specific column or table names might be explicitly quoted, e
 This is often necessary when the column or table name starts with or uses a specific convention that would otherwise be considered illegal syntax.
 For example, when the xref:jdbc-property-primary-key-mode[primary.key.mode] is set to `kafka`, some databases only permit column names to begin with an underscore if the column's name is quoted.
 Quoting behavior is dialect-specific, and varies among different types of database.
-

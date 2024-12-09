@@ -5,6 +5,7 @@
  */
 package io.debezium.connector.mongodb;
 
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -88,8 +89,7 @@ public class MongoDbSchema implements DatabaseSchema<CollectionId> {
                     id,
                     fieldFilter,
                     keySchema,
-                    serialization::getDocumentIdSnapshot,
-                    serialization::getDocumentIdChangeStream,
+                    serialization::getDocumentId,
                     envelope,
                     valueSchema,
                     serialization::getDocumentValue);
@@ -112,5 +112,9 @@ public class MongoDbSchema implements DatabaseSchema<CollectionId> {
     @Override
     public boolean isHistorized() {
         return false;
+    }
+
+    public Set<CollectionId> collections() {
+        return collections.keySet();
     }
 }

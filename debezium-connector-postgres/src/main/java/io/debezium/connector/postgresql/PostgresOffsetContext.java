@@ -154,7 +154,7 @@ public class PostgresOffsetContext extends CommonOffsetContext<SourceInfo> {
         return lastCompletelyProcessedLsn;
     }
 
-    Lsn lastCommitLsn() {
+    public Lsn lastCommitLsn() {
         return lastCommitLsn;
     }
 
@@ -209,8 +209,12 @@ public class PostgresOffsetContext extends CommonOffsetContext<SourceInfo> {
             final Instant useconds = Conversions.toInstantFromMicros((Long) ((Map<String, Object>) offset).getOrDefault(SourceInfo.TIMESTAMP_USEC_KEY, 0L));
             final boolean snapshot = (boolean) ((Map<String, Object>) offset).getOrDefault(SourceInfo.SNAPSHOT_KEY, Boolean.FALSE);
             final boolean lastSnapshotRecord = (boolean) ((Map<String, Object>) offset).getOrDefault(SourceInfo.LAST_SNAPSHOT_RECORD_KEY, Boolean.FALSE);
-            return new PostgresOffsetContext(connectorConfig, lsn, lastCompletelyProcessedLsn, lastCommitLsn, txId, messageType, useconds, snapshot, lastSnapshotRecord,
-                    TransactionContext.load(offset), SignalBasedIncrementalSnapshotContext.load(offset, false));
+            return new PostgresOffsetContext(connectorConfig, lsn,
+                    lastCompletelyProcessedLsn, lastCommitLsn, txId, messageType, useconds, snapshot, lastSnapshotRecord,
+                    TransactionContext.load(offset),
+                    connectorConfig.isReadOnlyConnection()
+                            ? PostgresReadOnlyIncrementalSnapshotContext.load(offset)
+                            : SignalBasedIncrementalSnapshotContext.load(offset, false));
         }
     }
 
@@ -232,7 +236,7 @@ public class PostgresOffsetContext extends CommonOffsetContext<SourceInfo> {
         try {
             LOGGER.info("Creating initial offset context");
             final Lsn lsn = Lsn.valueOf(jdbcConnection.currentXLogLocation());
-            final long txId = jdbcConnection.currentTransactionId().longValue();
+            final Long txId = jdbcConnection.currentTransactionId();
             LOGGER.info("Read xlogStart at '{}' from transaction '{}'", lsn, txId);
             return new PostgresOffsetContext(
                     connectorConfig,
@@ -245,7 +249,9 @@ public class PostgresOffsetContext extends CommonOffsetContext<SourceInfo> {
                     false,
                     false,
                     new TransactionContext(),
-                    new SignalBasedIncrementalSnapshotContext<>(false));
+                    connectorConfig.isReadOnlyConnection()
+                            ? new PostgresReadOnlyIncrementalSnapshotContext<>()
+                            : new SignalBasedIncrementalSnapshotContext<>(false));
         }
         catch (SQLException e) {
             throw new ConnectException("Database processing error", e);

@@ -25,6 +25,7 @@ import java.util.TimeZone;
 import java.util.regex.Pattern;
 
 import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.connect.components.Versioned;
 import org.apache.kafka.connect.connector.ConnectRecord;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
@@ -35,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.debezium.DebeziumException;
+import io.debezium.Module;
 import io.debezium.config.Configuration;
 import io.debezium.config.Field;
 import io.debezium.data.Envelope;
@@ -50,7 +52,7 @@ import io.debezium.time.ZonedTimestamp;
  *
  */
 
-public class TimezoneConverter<R extends ConnectRecord<R>> implements Transformation<R> {
+public class TimezoneConverter<R extends ConnectRecord<R>> implements Transformation<R>, Versioned {
     private static final Logger LOGGER = LoggerFactory.getLogger(TimezoneConverter.class);
 
     private static final Field CONVERTED_TIMEZONE = Field.create("converted.timezone")
@@ -92,8 +94,11 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
     private String convertedTimezone;
     private List<String> includeList;
     private List<String> excludeList;
-    private static final String SOURCE = "source";
+    private static final String SOURCE = Envelope.FieldName.SOURCE;
     private static final String TOPIC = "topic";
+    private static final String FIELD_SOURCE_PREFIX = Envelope.FieldName.SOURCE + ".";
+    private static final String FIELD_BEFORE_PREFIX = Envelope.FieldName.BEFORE + ".";
+    private static final String FIELD_AFTER_PREFIX = Envelope.FieldName.AFTER + ".";
     private static final Pattern TIMEZONE_OFFSET_PATTERN = Pattern.compile("^[+-]\\d{2}:\\d{2}(:\\d{2})?$");
     private static final Pattern LIST_PATTERN = Pattern.compile("^\\[(source|topic|[\".\\w\\s_]+):([\".\\w\\s_]+(?::[\".\\w\\s_]+)?(?:,|]$))+$");
     private final Map<String, Set<String>> topicFieldsMap = new HashMap<>();
@@ -106,6 +111,13 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
             ZonedTimestamp.SCHEMA_NAME,
             ZonedTime.SCHEMA_NAME,
             org.apache.kafka.connect.data.Timestamp.LOGICAL_NAME);
+    private static final List<String> UNSUPPORTED_LOGICAL_NAMES = List.of(
+            io.debezium.time.Date.SCHEMA_NAME,
+            io.debezium.time.MicroTime.SCHEMA_NAME,
+            io.debezium.time.NanoTime.SCHEMA_NAME,
+            io.debezium.time.Time.SCHEMA_NAME,
+            org.apache.kafka.connect.data.Date.LOGICAL_NAME,
+            org.apache.kafka.connect.data.Time.LOGICAL_NAME);
 
     @Override
     public ConfigDef config() {
@@ -121,8 +133,6 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
         }
 
         Struct value = (Struct) record.value();
-        Schema schema = value.schema();
-
         String table = getTableFromSource(value);
         String topic = record.topic();
 
@@ -136,14 +146,13 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
             handleExclude(value, table, topic);
         }
 
-        Struct updatedEnvelopeValue = handleEnvelopeValue(schema, value);
         return record.newRecord(
                 record.topic(),
                 record.kafkaPartition(),
                 record.keySchema(),
                 record.key(),
                 record.valueSchema(),
-                updatedEnvelopeValue,
+                record.value(),
                 record.timestamp(),
                 record.headers());
     }
@@ -184,19 +193,25 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
                 if (!topicFieldsMap.containsKey(matchName)) {
                     topicFieldsMap.put(matchName, new HashSet<>());
                 }
-                topicFieldsMap.get(matchName).add(field);
+                if (field != null) {
+                    topicFieldsMap.get(matchName).add(field);
+                }
             }
             else if (Objects.equals(commonPrefix, SOURCE)) {
                 if (!tableFieldsMap.containsKey(matchName)) {
                     tableFieldsMap.put(matchName, new HashSet<>());
                 }
-                tableFieldsMap.get(matchName).add(field);
+                if (field != null) {
+                    tableFieldsMap.get(matchName).add(field);
+                }
             }
             else {
                 if (!noPrefixFieldsMap.containsKey(matchName)) {
                     noPrefixFieldsMap.put(matchName, new HashSet<>());
                 }
-                noPrefixFieldsMap.get(matchName).add(field);
+                if (field != null) {
+                    noPrefixFieldsMap.get(matchName).add(field);
+                }
             }
         }
     }
@@ -239,6 +254,11 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
 
     @Override
     public void close() {
+    }
+
+    @Override
+    public String version() {
+        return Module.version();
     }
 
     private enum Type {
@@ -294,10 +314,6 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
         return updatedFieldValue;
     }
 
-    private boolean isTimeField(String schemaName) {
-        return schemaName != null && SUPPORTED_TIMESTAMP_LOGICAL_NAMES.contains(schemaName);
-    }
-
     private void handleStructs(Struct value, Type type, String matchName, Set<String> fields) {
         if (type == null || matchName == null) {
             return;
@@ -305,22 +321,65 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
 
         Struct before = getStruct(value, Envelope.FieldName.BEFORE);
         Struct after = getStruct(value, Envelope.FieldName.AFTER);
+        Struct source = getStruct(value, Envelope.FieldName.SOURCE);
+
+        Set<String> beforeFields = new HashSet<>();
+        Set<String> afterFields = new HashSet<>();
+        Set<String> sourceFields = new HashSet<>();
+
+        if (!fields.isEmpty()) {
+            for (String field : fields) {
+                if (field.startsWith(FIELD_SOURCE_PREFIX)) {
+                    sourceFields.add(field.substring(FIELD_SOURCE_PREFIX.length()));
+                }
+                else if (field.startsWith(FIELD_BEFORE_PREFIX)) {
+                    beforeFields.add(field.substring(FIELD_BEFORE_PREFIX.length()));
+                }
+                else if (field.startsWith(FIELD_AFTER_PREFIX)) {
+                    afterFields.add(field.substring(FIELD_AFTER_PREFIX.length()));
+                }
+                else {
+                    beforeFields.add(field);
+                    afterFields.add(field);
+                }
+            }
+        }
 
         if (before != null) {
-            handleValueForFields(before, type, fields);
+            handleValueForFields(before, type, beforeFields);
         }
         if (after != null) {
-            handleValueForFields(after, type, fields);
+            handleValueForFields(after, type, afterFields);
+        }
+        if (source != null && !sourceFields.isEmpty()) {
+            handleValueForFields(source, type, sourceFields);
         }
     }
 
     private void handleValueForFields(Struct value, Type type, Set<String> fields) {
         Schema schema = value.schema();
         for (org.apache.kafka.connect.data.Field field : schema.fields()) {
-            if ((type == Type.ALL
-                    || type == Type.INCLUDE && fields.contains(field.name())
-                    || (type == Type.EXCLUDE && !fields.contains(field.name())))) {
-                handleValueForField(value, field);
+            String schemaName = field.schema().name();
+
+            if (schemaName == null) {
+                continue;
+            }
+
+            boolean isUnsupportedLogicalType = UNSUPPORTED_LOGICAL_NAMES.contains(schemaName);
+            boolean supportedLogicalType = SUPPORTED_TIMESTAMP_LOGICAL_NAMES.contains(schemaName);
+            boolean shouldIncludeField = type == Type.ALL
+                    || (type == Type.INCLUDE && fields.contains(field.name()))
+                    || (type == Type.EXCLUDE && !fields.contains(field.name()));
+
+            if (isUnsupportedLogicalType && shouldIncludeField) {
+                LOGGER.warn("Skipping conversion for unsupported logical type: " + schemaName + " for field: " + field.name());
+                continue;
+            }
+
+            if (shouldIncludeField && supportedLogicalType) {
+                if (value.get(field) != null) {
+                    handleValueForField(value, field);
+                }
             }
         }
     }
@@ -328,24 +387,8 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
     private void handleValueForField(Struct struct, org.apache.kafka.connect.data.Field field) {
         String fieldName = field.name();
         Schema schema = field.schema();
-
-        if (isTimeField(schema.name())) {
-            Object newValue = getTimestampWithTimezone(schema.name(), struct.get(fieldName));
-            struct.put(fieldName, newValue);
-        }
-    }
-
-    private Struct handleEnvelopeValue(Schema schema, Struct value) {
-        final Struct updatedEnvelopeValue = new Struct(schema);
-        Struct updatedAfterValue = getStruct(value, Envelope.FieldName.AFTER);
-        Struct updatedBeforeValue = getStruct(value, Envelope.FieldName.BEFORE);
-        if (updatedAfterValue != null) {
-            updatedEnvelopeValue.put(Envelope.FieldName.AFTER, updatedAfterValue);
-        }
-        if (updatedBeforeValue != null) {
-            updatedEnvelopeValue.put(Envelope.FieldName.BEFORE, updatedBeforeValue);
-        }
-        return updatedEnvelopeValue;
+        Object newValue = getTimestampWithTimezone(schema.name(), struct.get(fieldName));
+        struct.put(fieldName, newValue);
     }
 
     private Struct getStruct(Struct struct, String structName) {
@@ -469,7 +512,7 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
         Set<String> fields = matchFieldsResult.getFields();
 
         if (matchName != null) {
-            if (!fields.contains(null)) {
+            if (!fields.isEmpty()) {
                 handleStructs(value, Type.INCLUDE, matchName, fields);
             }
             else {
@@ -477,7 +520,7 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
             }
         }
         else {
-            handleStructs(value, Type.ALL, table, Set.of(""));
+            handleStructs(value, Type.ALL, table, Collections.emptySet());
         }
     }
 
@@ -487,16 +530,16 @@ public class TimezoneConverter<R extends ConnectRecord<R>> implements Transforma
         Set<String> fields = matchFieldsResult.getFields();
 
         if (matchName == null) {
-            handleStructs(value, Type.ALL, table != null ? table : topic, Set.of(""));
+            handleStructs(value, Type.ALL, table != null ? table : topic, Collections.emptySet());
         }
-        else if (!fields.contains(null)) {
+        else if (!fields.isEmpty()) {
             handleStructs(value, Type.EXCLUDE, matchName, fields);
         }
     }
 
     private void handleAllRecords(Struct value, String table, String topic) {
         if (!topicFieldsMap.containsKey(topic) && !tableFieldsMap.containsKey(table) && !noPrefixFieldsMap.containsKey(table)) {
-            handleStructs(value, Type.ALL, table != null ? table : topic, Set.of(""));
+            handleStructs(value, Type.ALL, table != null ? table : topic, Collections.emptySet());
         }
     }
 }

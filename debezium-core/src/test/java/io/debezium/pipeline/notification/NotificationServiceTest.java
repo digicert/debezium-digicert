@@ -50,6 +50,7 @@ public class NotificationServiceTest {
                 .field("type", SchemaBuilder.STRING_SCHEMA)
                 .field("aggregate_type", SchemaBuilder.STRING_SCHEMA)
                 .field("additional_data", SchemaBuilder.map(SchemaBuilder.STRING_SCHEMA, SchemaBuilder.STRING_SCHEMA))
+                .field("timestamp", Schema.INT64_SCHEMA)
                 .build();
 
         Struct key = new Struct(keySchema).put("id", NOTIFICATION_ID);
@@ -57,7 +58,8 @@ public class NotificationServiceTest {
                 .put("id", NOTIFICATION_ID)
                 .put("type", "Test")
                 .put("aggregate_type", "Test")
-                .put("additional_data", Map.of("k1", "v1"));
+                .put("additional_data", Map.of("k1", "v1"))
+                .put("timestamp", 1695817046353L);
 
         return new SourceRecord(Map.of(), Map.of(), "notificationTopic", null, keySchema, key, valueSchema, value);
     }
@@ -78,9 +80,12 @@ public class NotificationServiceTest {
                 .withType("Test")
                 .withAggregateType("Test")
                 .withAdditionalData(Map.of("Key1", "Value1"))
+                .withTimestamp(1684279500L)
                 .build());
 
-        assertThat(logInterceptor.containsMessage("[Notification Service]  {aggregateType='Test', type='Test', additionalData={Key1=Value1}}")).isTrue();
+        assertThat(logInterceptor.containsMessage(
+                "[Notification Service]  {id='" + NOTIFICATION_ID + "', aggregateType='Test', type='Test', additionalData={Key1=Value1}, timestamp=1684279500}"))
+                .isTrue();
     }
 
     @Test
@@ -97,6 +102,7 @@ public class NotificationServiceTest {
                 .withType("Test")
                 .withAggregateType("Test")
                 .withAdditionalData(Map.of("k1", "v1"))
+                .withTimestamp(1695817046353L)
                 .build());
 
         assertThat(isConsumerCalled).isTrue();
