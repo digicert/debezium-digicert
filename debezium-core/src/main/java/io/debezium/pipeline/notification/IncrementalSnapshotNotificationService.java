@@ -5,9 +5,12 @@
  */
 package io.debezium.pipeline.notification;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -37,6 +40,8 @@ public class IncrementalSnapshotNotificationService<P extends Partition, O exten
 
     private final CommonConnectorConfig connectorConfig;
 
+    public Clock clock;
+
     public enum TableScanCompletionStatus {
         EMPTY,
         NO_PRIMARY_KEY,
@@ -46,9 +51,10 @@ public class IncrementalSnapshotNotificationService<P extends Partition, O exten
         UNKNOWN_SCHEMA
     }
 
-    public IncrementalSnapshotNotificationService(NotificationService<P, O> notificationService, CommonConnectorConfig config) {
+    public IncrementalSnapshotNotificationService(NotificationService<P, O> notificationService, CommonConnectorConfig config, Clock clock) {
         this.notificationService = notificationService;
-        connectorConfig = config;
+        this.connectorConfig = config;
+        this.clock = clock;
     }
 
     public <T extends DataCollectionId> void notifyStarted(IncrementalSnapshotContext<T> incrementalSnapshotContext, P partition, OffsetContext offsetContext) {
@@ -125,8 +131,8 @@ public class IncrementalSnapshotNotificationService<P extends Partition, O exten
                 Map.of(
                         DATA_COLLECTIONS, dataCollections,
                         CURRENT_COLLECTION_IN_PROGRESS, incrementalSnapshotContext.currentDataCollectionId().getId().identifier(),
-                        MAXIMUM_KEY, incrementalSnapshotContext.maximumKey().orElse(new Object[0])[0].toString(),
-                        LAST_PROCESSED_KEY, incrementalSnapshotContext.chunkEndPosititon()[0].toString()),
+                        MAXIMUM_KEY, Objects.toString(incrementalSnapshotContext.maximumKey().orElse(new Object[0])[0], "<null>"),
+                        LAST_PROCESSED_KEY, Objects.toString(incrementalSnapshotContext.chunkEndPosititon()[0], "<null>")),
                 offsetContext),
                 Offsets.of(partition, offsetContext));
     }
@@ -151,6 +157,7 @@ public class IncrementalSnapshotNotificationService<P extends Partition, O exten
                 .withAggregateType(INCREMENTAL_SNAPSHOT)
                 .withType(type.name())
                 .withAdditionalData(fullMap)
+                .withTimestamp(Instant.now(clock).toEpochMilli())
                 .build();
     }
 

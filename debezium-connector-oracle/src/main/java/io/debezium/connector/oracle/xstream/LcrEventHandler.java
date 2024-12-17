@@ -22,7 +22,6 @@ import io.debezium.connector.oracle.OracleDatabaseSchema;
 import io.debezium.connector.oracle.OracleOffsetContext;
 import io.debezium.connector.oracle.OraclePartition;
 import io.debezium.connector.oracle.OracleSchemaChangeEventEmitter;
-import io.debezium.connector.oracle.OracleStreamingChangeEventSourceMetrics;
 import io.debezium.connector.oracle.OracleValueConverters;
 import io.debezium.connector.oracle.xstream.XstreamStreamingChangeEventSource.PositionAndScn;
 import io.debezium.pipeline.ErrorHandler;
@@ -60,7 +59,7 @@ class LcrEventHandler implements XStreamLCRCallbackHandler {
     private final OracleOffsetContext offsetContext;
     private final boolean tablenameCaseInsensitive;
     private final XstreamStreamingChangeEventSource eventSource;
-    private final OracleStreamingChangeEventSourceMetrics streamingMetrics;
+    private final XStreamStreamingChangeEventSourceMetrics streamingMetrics;
     private final Map<String, ChunkColumnValues> columnChunks;
     private RowLCR currentRow;
 
@@ -68,7 +67,7 @@ class LcrEventHandler implements XStreamLCRCallbackHandler {
                     EventDispatcher<OraclePartition, TableId> dispatcher, Clock clock,
                     OracleDatabaseSchema schema, OraclePartition partition, OracleOffsetContext offsetContext,
                     boolean tablenameCaseInsensitive, XstreamStreamingChangeEventSource eventSource,
-                    OracleStreamingChangeEventSourceMetrics streamingMetrics) {
+                    XStreamStreamingChangeEventSourceMetrics streamingMetrics) {
         this.connectorConfig = connectorConfig;
         this.errorHandler = errorHandler;
         this.dispatcher = dispatcher;
@@ -106,6 +105,7 @@ class LcrEventHandler implements XStreamLCRCallbackHandler {
                 return;
             }
 
+            offsetContext.setRowId(""); // specifically reset on each event
             offsetContext.setScn(lcrPosition.getScn());
             offsetContext.setEventScn(lcrPosition.getScn());
             offsetContext.setLcrPosition(lcrPosition.toString());
@@ -151,7 +151,7 @@ class LcrEventHandler implements XStreamLCRCallbackHandler {
     }
 
     private void dispatchDataChangeEvent(RowLCR lcr, Map<String, Object> chunkValues) throws InterruptedException {
-        LOGGER.info("Processing DML event {}", lcr);
+        LOGGER.debug("Processing DML event {}", lcr);
 
         if (RowLCR.COMMIT.equals(lcr.getCommandType())) {
             final Instant commitTimestamp = lcr.getSourceTime().timestampValue().toInstant();
@@ -230,6 +230,11 @@ class LcrEventHandler implements XStreamLCRCallbackHandler {
                 LOGGER.trace("\tColumn '{}' not supplied, initialized with unavailable value", column.name());
                 chunkValues.put(column.name(), OracleValueConverters.UNAVAILABLE_VALUE);
             }
+        }
+
+        final Object rowIdObject = lcr.getAttribute("ROW_ID");
+        if (rowIdObject != null) {
+            offsetContext.setRowId(rowIdObject.toString());
         }
 
         dispatcher.dispatchDataChangeEvent(

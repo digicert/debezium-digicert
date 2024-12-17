@@ -52,6 +52,7 @@ import io.debezium.connector.oracle.OracleConnectorConfig.ConnectorAdapter;
 import io.debezium.connector.oracle.OracleConnectorConfig.LogMiningStrategy;
 import io.debezium.connector.oracle.OracleConnectorConfig.SnapshotMode;
 import io.debezium.embedded.EmbeddedEngine;
+import io.debezium.embedded.EmbeddedEngineConfig;
 import io.debezium.jdbc.JdbcConfiguration;
 import io.debezium.storage.file.history.FileSchemaHistory;
 import io.debezium.util.IoUtil;
@@ -112,31 +113,31 @@ public class EndToEndPerf {
             delete("history.txt");
 
             Configuration connectorConfig = defaultConnectorConfig()
-                    .with(OracleConnectorConfig.SNAPSHOT_MODE, SnapshotMode.SCHEMA_ONLY)
+                    .with(OracleConnectorConfig.SNAPSHOT_MODE, SnapshotMode.NO_DATA)
                     .with(OracleConnectorConfig.TABLE_INCLUDE_LIST, "DEBEZIUM\\.TEST")
                     .with(OracleConnectorConfig.LOG_MINING_STRATEGY, LogMiningStrategy.parse(miningStrategy))
                     .build();
 
             Configuration config = Configuration.copy(connectorConfig)
-                    .with(EmbeddedEngine.ENGINE_NAME, "benchmark")
-                    .with(EmbeddedEngine.CONNECTOR_CLASS, OracleConnector.class)
+                    .with(EmbeddedEngineConfig.ENGINE_NAME, "benchmark")
+                    .with(EmbeddedEngineConfig.CONNECTOR_CLASS, OracleConnector.class)
                     .with(StandaloneConfig.OFFSET_STORAGE_FILE_FILENAME_CONFIG, getPath("offsets.txt").toAbsolutePath())
-                    .with(EmbeddedEngine.OFFSET_FLUSH_INTERVAL_MS, 0)
+                    .with(EmbeddedEngineConfig.OFFSET_FLUSH_INTERVAL_MS, 0)
                     .build();
 
             Consumer<SourceRecord> recordArrivedListener = this::processRecord;
-            this.engine = EmbeddedEngine.create()
-                    .using(config)
+            this.engine = (EmbeddedEngine) new EmbeddedEngine.EngineBuilder()
+                    .using(config.asProperties())
                     .notifying((record) -> {
                         if (!engine.isRunning() || Thread.currentThread().isInterrupted()) {
                             return;
                         }
-                        while (!consumedLines.offer(record)) {
+                        while (!consumedLines.offer((SourceRecord) record)) {
                             if (!engine.isRunning() || Thread.currentThread().isInterrupted()) {
                                 return;
                             }
                         }
-                        recordArrivedListener.accept(record);
+                        recordArrivedListener.accept((SourceRecord) record);
                     })
                     .using(this.getClass().getClassLoader())
                     .build();

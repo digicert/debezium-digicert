@@ -53,6 +53,7 @@ ARRAY:                               'ARRAY';
 AS:                                  'AS';
 ASC:                                 'ASC';
 ATTRIBUTE:                           'ATTRIBUTE';
+AUTO:                                'AUTO'; // MariaDB-specific
 BEFORE:                              'BEFORE';
 BETWEEN:                             'BETWEEN';
 BOTH:                                'BOTH';
@@ -112,6 +113,7 @@ GENERATED:                           'GENERATED';
 GET:                                 'GET';
 GRANT:                               'GRANT';
 GROUP:                               'GROUP';
+GROUP_REPLICATION_STREAM:            'GROUP_REPLICATION_STREAM';
 HAVING:                              'HAVING';
 HIGH_PRIORITY:                       'HIGH_PRIORITY';
 HISTOGRAM:                           'HISTOGRAM';
@@ -210,6 +212,7 @@ STACKED:                             'STACKED';
 STARTING:                            'STARTING';
 STATEMENT:                           'STATEMENT';
 STRAIGHT_JOIN:                       'STRAIGHT_JOIN';
+SYSTEM_TIME:                         'SYSTEM_TIME'; // MariaDB-specific
 TABLE:                               'TABLE';
 TERMINATED:                          'TERMINATED';
 THEN:                                'THEN';
@@ -1099,7 +1102,9 @@ ROW_COUNT:                           'ROW_COUNT';
 RPAD:                                'RPAD';
 RTRIM:                               'RTRIM';
 SEC_TO_TIME:                         'SEC_TO_TIME';
+SECONDARY_ENGINE:                    'SECONDARY_ENGINE';
 SECONDARY_ENGINE_ATTRIBUTE:          'SECONDARY_ENGINE_ATTRIBUTE';
+SENSITIVE_VARIABLES_OBSERVER:        'SENSITIVE_VARIABLES_OBSERVER';
 SESSION_USER:                        'SESSION_USER';
 SHA:                                 'SHA';
 SHA1:                                'SHA1';
@@ -1179,6 +1184,7 @@ SUBTIME:                             'SUBTIME';
 SYSTEM_USER:                         'SYSTEM_USER';
 SYSTEM:                              'SYSTEM';
 TAN:                                 'TAN';
+TELEMETRY_LOG_ADMIN:                 'TELEMETRY_LOG_ADMIN';
 TIMEDIFF:                            'TIMEDIFF';
 TIMESTAMPADD:                        'TIMESTAMPADD';
 TIMESTAMPDIFF:                       'TIMESTAMPDIFF';
@@ -1338,35 +1344,15 @@ DOT_ID:                              '.' ID_LITERAL;
 ID:                                  ID_LITERAL;
 // DOUBLE_QUOTE_ID:                  '"' ~'"'+ '"';
 REVERSE_QUOTE_ID:                    BQUOTA_STRING;
-STRING_USER_NAME:                    (
-                                       SQUOTA_STRING | DQUOTA_STRING
-                                       | BQUOTA_STRING | ID_LITERAL
-                                     ) '@'
+HOST_IP_ADDRESS:                     (AT_SIGN IP_ADDRESS);
+LOCAL_ID:                            AT_SIGN
                                      (
-                                       SQUOTA_STRING | DQUOTA_STRING
-                                       | BQUOTA_STRING | ID_LITERAL
-                                       | IP_ADDRESS
+                                       STRING_LITERAL | [A-Z0-9._$\u0080-\uFFFF]+
                                      );
-IP_ADDRESS:                          (
-                                       [0-9]+ '.' [0-9.]+
-                                       | [0-9A-F]* ':' [0-9A-F]* ':' [0-9A-F:]+
-                                     );
-STRING_USER_NAME_MARIADB:            (
-                                        SQUOTA_STRING | DQUOTA_STRING
-                                        | BQUOTA_STRING | ID_LITERAL
-                                     )  '@';
-LOCAL_ID:                               '@'
+GLOBAL_ID:                           AT_SIGN AT_SIGN
                                      (
-                                        [A-Z0-9._$\u0080-\uFFFF]+
-                                        | SQUOTA_STRING
-                                        | DQUOTA_STRING
-                                        | BQUOTA_STRING
-                                    );
-GLOBAL_ID:                              '@' '@'
-                                    (
-                                        [A-Z0-9._$\u0080-\uFFFF]+
-                                        | BQUOTA_STRING
-                                    );
+                                       [A-Z0-9._$\u0080-\uFFFF]+ | BQUOTA_STRING
+                                     );
 
 
 // Fragments for Literal primitives
@@ -1389,6 +1375,7 @@ fragment BQUOTA_STRING:              '`' ( ~'`' | '``' )* '`';
 fragment HEX_DIGIT:                  [0-9A-F];
 fragment DEC_DIGIT:                  [0-9];
 fragment BIT_STRING_L:               'B' '\'' [01]+ '\'';
+fragment IP_ADDRESS:                 [0-9]+ '.' [0-9.]+ | [0-9A-F]* ':' [0-9A-F]* ':' [0-9A-F:]+;
 
 
 

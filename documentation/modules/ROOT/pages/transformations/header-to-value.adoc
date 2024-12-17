@@ -14,11 +14,11 @@
 
 toc::[]
 
-The `HeaderToValue` SMT extracts specified header fields from event records, and then copies or moves the header fields to values in the event record. 
-The `move` options removes the fields from the header entirely before adding them as values in the payload. 
-You can configure the SMT to manipulate multiple headers in the original message. 
-You can use dot notation to specify a node within the payload in which you want to nest the header field. 
-For more information about configuring the SMT, see the following xref:example-header-to-value[example]. 
+The `HeaderToValue` SMT extracts specified header fields from event records, and then copies or moves the header fields to values in the event record.
+The `move` options removes the fields from the header entirely before adding them as values in the payload.
+You can configure the SMT to manipulate multiple headers in the original message.
+You can use dot notation to specify a node within the payload in which you want to nest the header field.
+For more information about configuring the SMT, see the following xref:example-header-to-value[example].
 
 // Type: concept
 // Title: Example: Basic configuration of the {prodname} `HeaderToValue` SMT
@@ -26,8 +26,8 @@ For more information about configuring the SMT, see the following xref:example-h
 [[example-header-to-value]]
 == Example
 
-To extract message headers in an event record into the record value, configure the `HeaderToValue` SMT in the Kafka Connect configuration for a connector. 
-You can configure the transformation to either remove the original headers or to copy them. 
+To extract message headers in an event record into the record value, configure the `HeaderToValue` SMT in the Kafka Connect configuration for a connector.
+You can configure the transformation to either remove the original headers or to copy them.
 To remove header fields from the record, configure the SMT to use the `move` operations.
 To retain the header fields in the original record, configure the SMT to use the `copy` operation.
 For example, to remove the headers `event_timestamp` and `key` from an event message, add the following lines to your connector configuration:
@@ -75,6 +75,8 @@ Value before the SMT processes the event record:::
             "connector": "postgresql",
             "name": "PostgreSQL_server",
             "ts_ms": 1559033904863,
+            "ts_us": 1559033904863091,
+            "ts_ns": 1559033904863091000,
             "snapshot": true,
             "db": "postgres",
             "sequence": "[\"24023119\",\"24023128\"]"
@@ -85,7 +87,9 @@ Value before the SMT processes the event record:::
             "xmin": null
         },
         "op": "c",
-        "ts_ms": 1559033904863
+        "ts_ms": 1559033904863,
+        "ts_us": 1559033904863741,
+        "ts_ns": 1559033904863741697
     }
 ----
 
@@ -116,6 +120,8 @@ Value after the SMT moves header fields into the value:::
             "connector": "postgresql",
             "name": "PostgreSQL_server",
             "ts_ms": 1559033904863,
+            "ts_us": 1559033904863697,
+            "ts_ns": 1559033904863697000,
             "snapshot": true,
             "db": "postgres",
             "sequence": "[\"24023119\",\"24023128\"]"
@@ -128,6 +134,8 @@ Value after the SMT moves header fields into the value:::
         },
         "op": "c",
         "ts_ms": 1559033904863,
+        "ts_us": 1559033904863631,
+        "ts_ns": 1559033904863631584,
         "event_timestamp": 1626102708861
     }
 ----
@@ -158,9 +166,9 @@ The following table lists the configuration options that you can use with the `H
 |non-empty list
 |high
 |[[header-to-value-fields]]<<header-to-value-fields, `fields`>>
-|A comma-separated list of field names, in the same order as the header names listed in the `headers` configuration property. 
-Use dot notation to instruct the SMT to nest fields within specific nodes of the message payload. 
-For information about how to configure the SMT to use dot notation, see the xref:example-header-to-value[example] that appears earlier in this topic. 
+|A comma-separated list of field names, in the same order as the header names listed in the `headers` configuration property.
+Use dot notation to instruct the SMT to nest fields within specific nodes of the message payload.
+For information about how to configure the SMT to use dot notation, see the xref:example-header-to-value[example] that appears earlier in this topic.
 |list
 |No default value
 |non-empty list

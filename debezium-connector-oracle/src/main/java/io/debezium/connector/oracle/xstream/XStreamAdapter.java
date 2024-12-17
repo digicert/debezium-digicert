@@ -13,13 +13,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.debezium.config.Configuration;
+import io.debezium.connector.base.ChangeEventQueueMetrics;
 import io.debezium.connector.oracle.AbstractStreamingAdapter;
 import io.debezium.connector.oracle.OracleConnection;
 import io.debezium.connector.oracle.OracleConnectorConfig;
 import io.debezium.connector.oracle.OracleDatabaseSchema;
 import io.debezium.connector.oracle.OracleOffsetContext;
 import io.debezium.connector.oracle.OraclePartition;
-import io.debezium.connector.oracle.OracleStreamingChangeEventSourceMetrics;
 import io.debezium.connector.oracle.OracleTaskContext;
 import io.debezium.connector.oracle.Scn;
 import io.debezium.connector.oracle.SourceInfo;
@@ -27,20 +27,25 @@ import io.debezium.document.Document;
 import io.debezium.pipeline.ErrorHandler;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.source.snapshot.incremental.SignalBasedIncrementalSnapshotContext;
+import io.debezium.pipeline.source.spi.EventMetadataProvider;
 import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.pipeline.txmetadata.TransactionContext;
 import io.debezium.relational.RelationalSnapshotChangeEventSource.RelationalSnapshotContext;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.HistoryRecordComparator;
+import io.debezium.snapshot.SnapshotterService;
 import io.debezium.util.Clock;
+
+import oracle.streams.StreamsException;
+import oracle.streams.XStreamUtility;
 
 /**
  * The streaming adapter implementation for Oracle XStream.
  *
  * @author Chris Cranford
  */
-public class XStreamAdapter extends AbstractStreamingAdapter {
+public class XStreamAdapter extends AbstractStreamingAdapter<XStreamStreamingChangeEventSourceMetrics> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(XStreamAdapter.class);
 
@@ -85,7 +90,8 @@ public class XStreamAdapter extends AbstractStreamingAdapter {
                                                                                       OracleDatabaseSchema schema,
                                                                                       OracleTaskContext taskContext,
                                                                                       Configuration jdbcConfig,
-                                                                                      OracleStreamingChangeEventSourceMetrics streamingMetrics) {
+                                                                                      XStreamStreamingChangeEventSourceMetrics streamingMetrics,
+                                                                                      SnapshotterService snapshotterService) {
         return new XstreamStreamingChangeEventSource(
                 connectorConfig,
                 connection,
@@ -94,6 +100,14 @@ public class XStreamAdapter extends AbstractStreamingAdapter {
                 clock,
                 schema,
                 streamingMetrics);
+    }
+
+    @Override
+    public XStreamStreamingChangeEventSourceMetrics getStreamingMetrics(OracleTaskContext taskContext,
+                                                                        ChangeEventQueueMetrics changeEventQueueMetrics,
+                                                                        EventMetadataProvider metadataProvider,
+                                                                        OracleConnectorConfig connectorConfig) {
+        return new XStreamStreamingChangeEventSourceMetrics(taskContext, changeEventQueueMetrics, metadataProvider);
     }
 
     @Override
@@ -133,4 +147,31 @@ public class XStreamAdapter extends AbstractStreamingAdapter {
                 .incrementalSnapshotContext(new SignalBasedIncrementalSnapshotContext<>())
                 .build();
     }
+
+    @Override
+    public Scn getOffsetScn(OracleOffsetContext offsetContext) {
+
+        final byte[] startPosition;
+        String lcrPosition = offsetContext.getLcrPosition();
+        if (lcrPosition != null) {
+            startPosition = LcrPosition.valueOf(lcrPosition).getRawPosition();
+            return getScn(startPosition);
+        }
+        return offsetContext.getScn();
+    }
+
+    private static Scn getScn(byte[] startPosition) {
+        try {
+            return new Scn(XStreamUtility.getSCNFromPosition(startPosition).bigIntegerValue());
+        }
+        catch (StreamsException | SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public OracleOffsetContext copyOffset(OracleConnectorConfig connectorConfig, OracleOffsetContext offsetContext) {
+        return new XStreamOracleOffsetContextLoader(connectorConfig).load(offsetContext.getOffset());
+    }
+
 }

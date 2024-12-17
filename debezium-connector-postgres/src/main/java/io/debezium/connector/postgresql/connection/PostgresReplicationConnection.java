@@ -404,7 +404,9 @@ public class PostgresReplicationConnection extends JdbcConnection implements Rep
         int tryCount = 0;
         while (true) {
             try {
-                validateSlotIsInExpectedState(walPosition);
+                if (connectorConfig.slotSeekToKnownOffsetOnStart()) {
+                    validateSlotIsInExpectedState(walPosition);
+                }
                 return createReplicationStream(lsn, walPosition);
             }
             catch (Exception e) {
@@ -416,7 +418,7 @@ public class PostgresReplicationConnection extends JdbcConnection implements Rep
                     throw new DebeziumException(message, e);
                 }
                 else {
-                    LOGGER.warn(message + ", waiting for {} ms and retrying, attempt number {} over {}", delay, tryCount, maxRetries);
+                    LOGGER.warn(message + ", waiting for {} ms and retrying, attempt number {} over {}", delay, tryCount, maxRetries, e);
                     final Metronome metronome = Metronome.sleeper(delay, Clock.SYSTEM);
                     metronome.pause();
                 }
@@ -452,6 +454,9 @@ public class PostgresReplicationConnection extends JdbcConnection implements Rep
                     || PSQLState.OBJECT_NOT_IN_STATE.getState().equals(e.getSQLState())) {
                 switch (connectorConfig.getEventProcessingFailureHandlingMode()) {
                     case FAIL:
+                        throw new DebeziumException(
+                                String.format("Cannot seek to the last known offset '%s' on replication slot '%s'. Error from server: %s", lsn.asString(), slotName,
+                                        e.getMessage()));
                     case WARN:
                         LOGGER.warn("Cannot seek to the last known offset '{}' on replication slot '{}'. Error from server: '{}'", lsn.asString(), slotName,
                                 e.getMessage(), e);

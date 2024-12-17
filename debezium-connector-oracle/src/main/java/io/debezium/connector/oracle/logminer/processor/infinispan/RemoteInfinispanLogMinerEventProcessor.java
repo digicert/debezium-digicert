@@ -15,6 +15,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 
+import org.checkerframework.checker.units.qual.C;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.configuration.Configuration;
@@ -33,8 +34,8 @@ import io.debezium.connector.oracle.OracleConnectorConfig;
 import io.debezium.connector.oracle.OracleDatabaseSchema;
 import io.debezium.connector.oracle.OracleOffsetContext;
 import io.debezium.connector.oracle.OraclePartition;
-import io.debezium.connector.oracle.OracleStreamingChangeEventSourceMetrics;
 import io.debezium.connector.oracle.Scn;
+import io.debezium.connector.oracle.logminer.LogMinerStreamingChangeEventSourceMetrics;
 import io.debezium.connector.oracle.logminer.events.LogMinerEvent;
 import io.debezium.connector.oracle.logminer.processor.infinispan.marshalling.LogMinerEventMarshallerImpl;
 import io.debezium.connector.oracle.logminer.processor.infinispan.marshalling.TransactionMarshallerImpl;
@@ -51,7 +52,7 @@ import io.debezium.relational.TableId;
  *
  * @author Chris Cranford
  */
-public class RemoteInfinispanLogMinerEventProcessor extends AbstractInfinispanLogMinerEventProcessor implements CacheProvider {
+public class RemoteInfinispanLogMinerEventProcessor extends AbstractInfinispanLogMinerEventProcessor {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RemoteInfinispanLogMinerEventProcessor.class);
 
@@ -75,7 +76,7 @@ public class RemoteInfinispanLogMinerEventProcessor extends AbstractInfinispanLo
                                                   OraclePartition partition,
                                                   OracleOffsetContext offsetContext,
                                                   OracleDatabaseSchema schema,
-                                                  OracleStreamingChangeEventSourceMetrics metrics) {
+                                                  LogMinerStreamingChangeEventSourceMetrics metrics) {
         super(context, connectorConfig, jdbcConnection, dispatcher, partition, offsetContext, schema, metrics);
 
         Configuration config = new ConfigurationBuilder()
@@ -94,6 +95,7 @@ public class RemoteInfinispanLogMinerEventProcessor extends AbstractInfinispanLo
         this.schemaChangesCache = createCache(SCHEMA_CHANGES_CACHE_NAME, connectorConfig, LOG_MINING_BUFFER_INFINISPAN_CACHE_SCHEMA_CHANGES);
         this.eventCache = createCache(EVENTS_CACHE_NAME, connectorConfig, LOG_MINING_BUFFER_INFINISPAN_CACHE_EVENTS);
 
+        reCreateInMemoryCache();
         displayCacheStatistics();
     }
 
@@ -158,8 +160,8 @@ public class RemoteInfinispanLogMinerEventProcessor extends AbstractInfinispanLo
     @Override
     protected Optional<InfinispanTransaction> getOldestTransactionInCache() {
         InfinispanTransaction transaction = null;
-        if (!transactionCache.isEmpty()) {
-            try (CloseableIterator<InfinispanTransaction> iterator = transactionCache.values().iterator()) {
+        try (CloseableIterator<InfinispanTransaction> iterator = transactionCache.values().iterator()) {
+            if (iterator.hasNext()) {
                 // Seed with the first element
                 transaction = iterator.next();
                 while (iterator.hasNext()) {
@@ -179,6 +181,22 @@ public class RemoteInfinispanLogMinerEventProcessor extends AbstractInfinispanLo
             }
         }
         return Optional.ofNullable(transaction);
+    }
+
+    @Override
+    protected String getFirstActiveTransactionKey() {
+        try (CloseableIterator<String> iterator = transactionCache.keySet().iterator()) {
+            if (iterator.hasNext()) {
+                return iterator.next();
+            }
+        }
+        return null;
+    }
+
+    @Override
+    protected void purgeCache(Scn minCacheScn) {
+        removeIf(processedTransactionsCache.entrySet().iterator(), entry -> Scn.valueOf(entry.getValue()).compareTo(minCacheScn) < 0);
+        removeIf(schemaChangesCache.entrySet().iterator(), entry -> Scn.valueOf(entry.getKey()).compareTo(minCacheScn) < 0);
     }
 
     private Properties getHotrodClientProperties(OracleConnectorConfig connectorConfig) {
